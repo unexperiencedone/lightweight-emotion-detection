@@ -41,3 +41,30 @@ Sizes: {'prosody_int8': 0.034522, 'face_int8': 0.098353}; params: {'prosody_mlp'
 - Tuned thresholds: `{'conf_p': 0.65, 'margin': 0.1, 'entropy': 0.7, 'conflict_jsd': 0.3, 'compat_dist': 0.75}`
 
 ![fusion](figures/fusion_sim.png)
+
+## 5. Temporal layer (**SYNTHETIC scripted session**, 10 seeds; verifies the logic, not real-world accuracy)
+
+| metric | static per-tick fusion | temporal layer |
+|---|---|---|
+| instant accuracy, clean phases | 0.760 ± 0.026 | **0.956 ± 0.007** |
+| label switches per minute (truth: ~0) | 43.489 ± 5.276 | **1.883 ± 0.533** |
+| transition latency (s) | 3.625 ± 1.522 | **1.525 ± 0.261** |
+| masking phase flagged 'conflict' | 0.229 ± 0.082 | **0.703 ± 0.194** |
+| 'conflict' false alarms, clean phases | 0.053 ± 0.029 | **0.053 ± 0.028** |
+| blend phase labelled joy or love | 0.686 ± 0.037 | **0.893 ± 0.045** |
+
+Window mood (30 s): accuracy on windows with a clear majority emotion 1.00 (naive majority vote of raw blocks: 1.00); transition reported with the right target 0.80; 'escalating' tag in escalation windows 0.65, false alarms 0.00.
+
+![temporal_eval](figures/temporal_eval.png)
+
+![live_timeline](figures/live_timeline.png)
+
+![live_mood](figures/live_mood.png)
+
+![mood_dirichlet_t60](figures/mood_dirichlet_t60.png)
+
+![live_valence_arousal](figures/live_valence_arousal.png)
+
+![live_filter_effect](figures/live_filter_effect.png)
+
+![segmentation](figures/segmentation.png)

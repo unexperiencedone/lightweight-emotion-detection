@@ -117,6 +117,25 @@ def main():
         L.append(f"- Accuracy when answered as *confident*: **{t['acc_when_confident']:.3f}** (coverage {t['coverage_confident']:.2f}); when flagged: {t['acc_when_flagged']:.3f}")
         L.append(f"- Share of samples flagged (not 'confident') by scenario: " + ", ".join(f"{k} {v:.2f}" for k, v in t["flag_rate_by_kind"].items()))
         L.append(f"- Tuned thresholds: `{fu['tuned_thresholds']}`\n\n![fusion](figures/fusion_sim.png)\n")
+    te = load("results/temporal_eval.json")
+    if te:
+        sm = te["summary"]
+        L.append(f"## 5. Temporal layer (**SYNTHETIC scripted session**, {te['n_seeds']} seeds; verifies the logic, not real-world accuracy)\n")
+        L.append("| metric | static per-tick fusion | temporal layer |\n|---|---|---|")
+        names = {"acc_clean": "instant accuracy, clean phases", "flicker_per_min": "label switches per minute (truth: ~0)",
+                 "latency_s": "transition latency (s)", "conflict_rate_masking": "masking phase flagged 'conflict'",
+                 "conflict_false_alarm_clean": "'conflict' false alarms, clean phases", "blend_in_joy_love": "blend phase labelled joy or love"}
+        for k, n in names.items():
+            b, t = sm["baseline"][k], sm["temporal"][k]
+            L.append(f"| {n} | {b['mean']:.3f} ± {b['sd']:.3f} | **{t['mean']:.3f} ± {t['sd']:.3f}** |")
+        w = sm["window"]
+        L.append(f"\nWindow mood (30 s): accuracy on windows with a clear majority emotion {w['mood_acc']['mean']:.2f} "
+                 f"(naive majority vote of raw blocks: {w['naive_majority_vote_acc']['mean']:.2f}); transition reported with the right target "
+                 f"{w['transition_detected']['mean']:.2f}; 'escalating' tag in escalation windows {w['escalation_tag_rate']['mean']:.2f}, "
+                 f"false alarms {w['escalation_false_alarm']['mean']:.2f}.\n")
+        for f in ("temporal_eval", "live_timeline", "live_mood", "mood_dirichlet_t60", "live_valence_arousal", "live_filter_effect", "segmentation"):
+            if (FIG / f"{f}.png").exists():
+                L.append(f"![{f}](figures/{f}.png)\n")
     Path("docs/RESULTS.md").write_text("\n".join(L))
     print("wrote docs/RESULTS.md")
 

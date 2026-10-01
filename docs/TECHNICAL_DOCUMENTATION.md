@@ -1,258 +1,444 @@
 # Lightweight multimodal emotion detection for edge devices: technical documentation
 
-This document records **what** was built, **why** each choice was made, and **how** to reproduce it. It also states, in section 1, what was verified in this repository and what is still pending. Measured numbers live in [`RESULTS.md`](RESULTS.md), which is generated from the result files. Nothing in this document is a measured result unless it says so.
+This document records **what** was built, **why** each decision was made, and **how** to reproduce it. Companion documents:
+
+| Document | Contents |
+|---|---|
+| [TEMPORAL_DESIGN.md](TEMPORAL_DESIGN.md) | Block segmentation, instant emotion, window mood, behavioural patterns: research basis, maths, evaluation |
+| [LIVE_PIPELINE.md](LIVE_PIPELINE.md) | Running the end-to-end pipeline (demo / files / real time), input and output formats, compute budget |
+| [RESULTS.md](RESULTS.md) | Every measured number and graph, generated from the result files by `python -m emotion_edge.report` |
+
+**Convention.** A number in this document is a measurement only if a result file is named next to it. Measurements on **random weights** (valid for size and latency) or **synthetic data** (valid for checking logic) are labelled as such every time.
 
 ---
 
-## 1. Status: verified versus pending
+## Contents
+
+1. [Status: verified versus pending](#1-status)
+2. [Goals and constraints](#2-goals-and-constraints)
+3. [System architecture](#3-system-architecture)
+4. [Text track: DistilBERT on dair-ai/emotion](#4-text-track)
+5. [Compression and the accuracy gate](#5-compression-and-the-accuracy-gate)
+6. [Edge-device simulation](#6-edge-device-simulation)
+7. [Voice-prosody track](#7-voice-prosody-track)
+8. [Facial-expression track](#8-facial-expression-track)
+9. [Probabilistic late fusion and ambiguity](#9-probabilistic-late-fusion-and-ambiguity)
+10. [Temporal layer and live pipeline (summary)](#10-temporal-layer-and-live-pipeline)
+11. [Decision log](#11-decision-log)
+12. [Limitations, risks, ethics](#12-limitations-risks-ethics)
+13. [Repository map](#13-repository-map)
+14. [Reproduce](#14-reproduce)
+15. [Glossary](#15-glossary)
+
+---
+
+## 1. Status
 
 | Item | Status | Evidence |
 |---|---|---|
-| Text pipeline code (train, evaluate, accuracy gate, vocabulary pruning, ONNX export, int8, deploy choice) | Works end to end on a tiny random model with synthetic data | `python -m emotion_edge.text.pipeline --smoke` |
-| **DistilBERT accuracy on dair-ai/emotion (target >= 90 %)** | **NOT MEASURED** | `huggingface.co` is blocked by the sandbox network policy, so neither the dataset nor the `distilbert-base-uncased` weights could be fetched |
-| Quantized-model accuracy drop on real data | NOT MEASURED | depends on the row above |
-| Size, memory and latency of the full-size DistilBERT architecture (random weights), fp32 vs int8 vs pruned+int8 | Measured | `results/edge_text_arch.json`; valid because speed and size do not depend on weight values |
-| Edge scenarios (core pinning, contention, memory cap, queueing load) | Implemented and run | `emotion_edge/edge/bench.py` |
-| Speech-prosody track (features, MLP, int8, actor-independent split) | Code complete and tested on synthetic signals with known pitch and tempo; **not trained on real speech** | `tests/test_speech_vision.py` |
-| Face track (Haar detect, mini-Xception CNN, static int8) | Code complete and tested on synthetic images; **not trained on real faces** | `tests/test_speech_vision.py` |
-| Probabilistic late fusion with ambiguity typing | Implemented, unit-tested, and validated on **simulated** modality outputs only | `tests/test_fusion.py`, `results/fusion_sim.json` |
-
-The one-command real run is `scripts/run_text.sh`. It needs `huggingface.co` allowed in the environment's network settings, or a local copy of the data and weights (see section 10).
+| Text pipeline code (train → evaluate → gate → prune → export → int8 → evaluate → choose) | Runs end to end on a tiny random model and synthetic data | `make smoke` |
+| **DistilBERT accuracy on dair-ai/emotion (target >= 90 %)** | **NOT MEASURED.** `huggingface.co` is blocked by this sandbox's network policy, so the dataset and pretrained weights were unavailable | Run `make real-text` or the Colab notebook |
+| Quantized-model accuracy on real data | NOT MEASURED (depends on the row above) | |
+| Size, memory and latency of the full-size DistilBERT architecture (fp32, int8, pruned + int8) | **Measured** on random weights | `results/edge_text_arch.json` |
+| Edge scenarios: core pinning, contention, memory cap, queueing | Implemented and run | `emotion_edge/edge/bench.py` |
+| Voice-prosody track | Code complete; checked on synthetic signals of known pitch and tempo; **not trained on real speech** | `tests/test_speech_vision.py` |
+| Face track | Code complete; checked on synthetic images; **not trained on real faces** | `tests/test_speech_vision.py` |
+| Late fusion with ambiguity typing | Implemented; unit-tested; validated on **simulated** modality outputs | `tests/test_fusion.py`, `results/fusion_sim.json` |
+| Temporal layer (segmentation, instant filter, Dirichlet mood, behaviour) | Implemented; unit-tested; evaluated on a **synthetic scripted session** (10 seeds) | `tests/test_temporal.py`, `results/temporal_eval.json` |
+| Live pipeline (files / real time / demo) | Files mode tested end to end with real file decoding and tiny random ONNX models; real-time capture code present but **not tested** (no camera or microphone in the sandbox) | `tests/test_live_files.py` |
+| Test suite | 27 tests passing | `make test` |
 
 ---
 
 ## 2. Goals and constraints
 
-1. Fine-tune **DistilBERT** on the six-class `dair-ai/emotion` dataset (sadness, joy, love, anger, fear, surprise) and optimise rounded test accuracy.
-2. **Gate:** quantize only if rounded test accuracy is at least 90 %. Verify the quantized model still meets the accuracy budget.
-3. Evaluate parameters, size, memory and latency in **simulated edge environments**, with graphs.
-4. Make the text model one pluggable **modality** next to voice prosody and facial expression, with the same train, quantize and evaluate steps for each.
-5. Combine modalities **probabilistically, not by early fusion**, so that confidence drives the result and **ambiguity can be flagged** for complex or mixed emotions.
+1. Fine-tune **DistilBERT** on the six-class `dair-ai/emotion` dataset (sadness, joy, love, anger, fear, surprise) and optimise **rounded** test accuracy.
+2. **Gate:** quantize only if rounded test accuracy is at least 90 %, then verify the compressed model is still within an accuracy budget.
+3. Report parameters, size, memory and latency in **simulated edge environments**, with graphs.
+4. Build **voice-prosody** and **facial-expression** models with the same steps (train, calibrate, quantize, evaluate).
+5. Combine the modalities **probabilistically, not by early fusion**, weighting each by its confidence and **flagging ambiguity** for complex or mixed emotions.
+6. Read the streams **over time**:
+   - decide when a block of input is complete,
+   - produce an **instant emotion** and an **overall mood** over a temporal window, with a probability attached,
+   - describe the **behavioural pattern**,
+   - do this for text, voice and face alike.
+
+**Constraints:** CPU-only edge targets (one or two cores, 0.5 to 2 GB RAM); privacy (all inference on device); the modalities can be missing at any time.
 
 ---
 
-## 3. Text track
+## 3. System architecture
 
-### 3.1 Data (what and why)
+```mermaid
+flowchart TB
+  subgraph Train["Offline: train, calibrate, compress (per modality)"]
+    direction LR
+    D1[(dair-ai/emotion)] --> T1[DistilBERT fine-tune] --> G{rounded test acc<br/>>= 90 %?}
+    G -- yes --> Q1[vocab prune + int8<br/>encoder + int8 embeddings]
+    G -- no --> X[stop: report, no quantization]
+    D2[(RAVDESS / CREMA-D)] --> T2[prosody features + MLP] --> Q2[dynamic int8]
+    D3[(FER2013)] --> T3[mini-Xception CNN] --> Q3[static int8 QDQ]
+    Q1 & Q2 & Q3 --> C[temperature scaling<br/>on validation logits]
+  end
+  subgraph Edge["On device: live"]
+    direction LR
+    S[streams: words, audio, frames] --> SG[block segmentation] --> M[int8 ONNX models]
+    M --> TL[temporal layer:<br/>sticky filter + Dirichlet mood]
+    TL --> F[probabilistic late fusion<br/>+ ambiguity typing]
+    F --> O[instant emotion · window mood ·<br/>behavioural pattern · flags]
+  end
+  C --> M
+```
 
-`dair-ai/emotion` (config `split`) has 16,000 training, 2,000 validation and 2,000 test tweet-length texts with 6 labels. Properties that drive the design:
-
-- **Class imbalance.** Per the dataset card, joy and sadness dominate and surprise is about 3.6 %. For this reason macro-F1 and a confusion matrix are reported next to accuracy; accuracy alone hides weak classes.
-- **Distant-supervision labels.** The labels came from hashtag patterns (Saravia et al., 2018), so some label noise is built in. Published DistilBERT fine-tunes report roughly 92-93 % accuracy, which suggests a ceiling near there. This is context from the literature, not something measured here. The 90 % gate is therefore realistic but leaves little headroom, so quantization loss matters.
-- **Short inputs.** Texts are short, so `max_len = 64` is used. The pipeline measures and records the truncation rate (`data.truncation_rate_train` in `results.json`) instead of assuming it is zero.
-
-### 3.2 Model and training (how)
-
-`distilbert-base-uncased` (6 layers, 768 hidden, 66.96 M parameters, of which 23.84 M are word embeddings) with the standard classification head. Training is a plain PyTorch loop (`emotion_edge/text/model.py`).
-
-| Decision | Choice | Reason |
-|---|---|---|
-| Optimiser | AdamW, weight decay 0.01 (none on bias and LayerNorm), 6 % linear warm-up then linear decay, gradient clip 1.0 | Standard transformer fine-tuning recipe; stable at lr 3e-5 to 5e-5 |
-| Batching | Shuffled mega-batches sorted by length inside, then shuffled batches | Dynamic padding cuts CPU cost several-fold without hurting randomness |
-| Model selection | Best **validation** accuracy epoch | Test is touched once per run, for reporting only |
-| Sweep | lr {3e-5, 5e-5} x epochs {3, 4}, chosen on validation (`scripts/run_text.sh`) | Cheap and enough for this task; test never influences the choice |
-| Optional levers for accuracy | Label smoothing (`--label-smoothing`), knowledge distillation from a larger fine-tuned teacher (`--teacher`, KL at T=2, alpha=0.5), multi-seed runs | Off by default. Use them only if the plain recipe lands under the gate |
-| Calibration | Temperature scaling fitted on validation logits | Fusion needs probabilities that mean something (section 6) |
-
-"Optimise for rounded-off accuracy" is implemented as follows. The gate compares `round(100 * test_accuracy, 1)` with the threshold, and every table reports accuracy rounded to 0.1 pt next to macro-F1.
-
-### 3.3 Quantization and the accuracy gate
-
-The flow is `train -> evaluate fp32 -> gate (>= 90.0 %) -> variants -> evaluate each -> pick`. If the gate fails, the pipeline writes the reason and **does not quantize**.
-
-Four deployable variants are built and each is evaluated on the same test set:
-
-| Variant | What | Why it exists |
-|---|---|---|
-| `onnx_fp32` | ONNX export, no compression | Baseline; checks that export itself is lossless |
-| `onnx_int8` | ONNX Runtime **dynamic** int8 on MatMul and Gemm (weights int8, activations quantized at run time) | Needs no calibration set; the standard CPU choice for transformers. Static int8 is less safe for attention softmax and LayerNorm outliers |
-| `onnx_pruned_fp32` | Embedding table cut to the wordpieces seen in train plus validation; unseen test tokens map to `[UNK]` | The embedding table is 36 % of all parameters. Using train plus validation only keeps test leakage out |
-| `onnx_pruned_int8` and `onnx_pruned_int8_emb8` | Pruned vocabulary plus int8 encoder; the second also stores the embedding table as per-row int8 | ORT's dynamic quantizer leaves `Gather` tables in fp32, so a custom `Int8Embedding` (Gather int8, cast, multiply by row scale) is used |
-
-**Selection rule:** the smallest variant whose accuracy drop versus torch fp32 is at most 1.0 pt (`--max-quant-drop`). Why 1.0 pt: against a ceiling near 93 %, a larger drop would erase the benefit of tuning in section 3.2. The report also prints the prediction agreement rate between each variant and the torch model.
-
-### 3.4 Size and parameters (measured, architecture-only)
-
-These come from `scripts/arch_benchmark.py` with random weights. File sizes are exact for the architecture; the weights only influence accuracy.
-
-| Variant | Parameters | File size |
-|---|---|---|
-| fp32 | 66.96 M | 267.7 MB |
-| dynamic int8 | 66.96 M | 138.6 MB |
-| vocab pruned to a hypothetical 15 k tokens, fp32 | about 55 M | 220.0 MB |
-| pruned 15 k + int8 encoder + int8 embeddings | about 55 M | **56.5 MB (4.7x smaller than fp32)** |
-
-The real kept-vocabulary size comes from the training data and is recorded in `results.json` under `vocab_pruning`. 15 k is an assumption used only for this size and latency measurement.
+Design principles:
+1. **Each modality is independent** until the probability level: its own model, label set, calibration and quantization.
+2. **Everything is a calibrated distribution**, never a bare label, so confidence, disagreement and uncertainty can be computed downstream.
+3. **One shared clock and one canonical label space** (8 classes) for fusion.
+4. **The cheapest thing that works** at each stage, measured before optimised.
 
 ---
 
-## 4. Edge-device simulation
+## 4. Text track
 
-### 4.1 What is simulated (and what is not)
+### 4.1 Data
 
-The sandbox has no ARM board. `emotion_edge/edge/bench.py` therefore **constrains a host CPU so it behaves like a weaker device**. Each scenario runs in a fresh subprocess so settings cannot leak between runs.
+`dair-ai/emotion` (config `split`) has 16,000 training, 2,000 validation and 2,000 test English tweet-length texts with six labels (Saravia et al., 2018).
 
-| Scenario | Mechanism | Models |
+| Property | Consequence for the design |
+|---|---|
+| Imbalanced (per the dataset card, joy and sadness dominate; surprise is about 4 %) | Macro-F1, per-class precision and recall, and the confusion matrix are reported next to accuracy |
+| Labels from hashtag distant supervision, so some noise is built in | Published DistilBERT fine-tunes report about 92-93 % (context, not measured here). The 90 % gate is reachable but leaves little headroom, which is why quantization loss is budgeted |
+| Short texts | `max_len = 64`. The pipeline *measures* the truncation rate and records it in `results.json` |
+| Single sentences, no conversation context | Live text is classified per utterance block, then pooled over time (TEMPORAL_DESIGN section 5) |
+
+### 4.2 Model and training
+
+`distilbert-base-uncased` (Sanh et al., 2019) has 6 layers, 768 hidden units and **66.96 M parameters**, of which 23.84 M (36 %) are word embeddings. It has a linear classification head on [CLS]. Training is a plain PyTorch loop (`emotion_edge/text/model.py`):
+
+| Setting | Value | Why |
 |---|---|---|
-| `host_4core` | 4 cores, 4 threads | A desktop-class upper bound |
-| `sbc_2core` | `sched_setaffinity` to 2 cores, 2 intra-op threads | Small single-board computer or phone little cluster |
-| `sbc_1core` | 1 core, 1 thread | Worst-case cheap SBC; also what a real-time audio or video pipeline leaves for NLP |
-| `sbc_1core_contended` | 1 core plus a busy-loop process on the same core | Noisy neighbour or thermal throttling |
-| `mem_capped_1core` | `RLIMIT_AS` of 1.1 GB | Memory-limited device. See the caveat below |
+| Optimiser | AdamW, lr 3e-5 or 5e-5, weight decay 0.01 (none on bias and LayerNorm), clip 1.0 | Standard, stable transformer fine-tuning |
+| Schedule | 6 % linear warm-up, then linear decay | Avoids early destabilisation of pretrained weights |
+| Batching | Shuffled mega-batches, sorted by length inside, batches shuffled | Dynamic padding makes CPU training several times cheaper |
+| Epochs | 3 or 4 (sweep) | Validation accuracy usually peaks in this range for this dataset size |
+| Selection | **Best validation epoch**; the sweep chooses on **validation**; test is read once per run | No test-set leakage into decisions |
+| Optional levers | Label smoothing; knowledge distillation from a larger fine-tuned teacher (KL at T = 2, α = 0.5; Hinton et al., 2015); multiple seeds | Used only if the plain recipe misses the gate |
+| Calibration | Temperature scaling on validation logits (Guo et al., 2017); ECE reported before and after | Fusion needs probabilities that mean what they say |
 
-On top of the scenarios, a **queueing load test** (Poisson arrivals into one worker, service times from the measurements) gives p50, p95 and p99 latency including waiting time, plus the arrival rate at which the system saturates.
-
-**Limits, stated plainly.**
-- This does not emulate the ISA (ARM NEON versus x86 AVX), cache hierarchy or clock. Absolute milliseconds are *host* numbers. Relative comparisons (fp32 versus int8, 1 core versus 2) transfer better than absolute ones.
-- `--slowdown` accepts a host-to-device ratio you measure once on real hardware. Projected values are then labelled as projections.
-- `RLIMIT_AS` limits address space, not resident memory, so the cap in `mem_capped_1core` is **not binding** for any model here. The evidence for memory fit is the reported **peak RSS** (fp32 about 0.43 GB, int8 0.28 GB, pruned int8 about 0.16 GB). Treat the fp32 model as marginal for a 512 MB device and the pruned int8 model as comfortable.
-- Four-thread numbers on very short sequences are noisy and sometimes slower than two threads, because threading overhead exceeds the work. Use the 1-core and 2-core rows for decisions.
-
-### 4.2 Findings so far (architecture-only, details and graphs in RESULTS.md)
-
-- **int8 is about 2.7x faster than fp32 on one core** at 32 tokens (p50 40.8 ms to 15.2 ms; 66.7 ms to 25.8 ms at 64 tokens), and about 2x smaller on disk (3x with the encoder-only figure, 4.7x with pruning and int8 embeddings).
-- **Load test (1 core, service time taken at 64 tokens, Poisson arrivals):** fp32 is stable up to 10 Hz (p95 345 ms) and saturates before 20 Hz; int8 holds p95 at 90 ms at 20 Hz and saturates before 40 Hz. The arrival rate for a single text stream is far below this, but several concurrent streams on one core are not.
-- **Vocabulary pruning and embedding quantization do not change compute** (latency is about the same as plain int8). They cut file size and resident memory: peak RSS 279 MB to 157 MB. They matter for flash and RAM-limited devices, not for speed.
-- **Contention doubles latency** on a shared core, so budgets must include a safety factor.
-- **The neural networks are not the bottleneck in the multimodal pipeline.** Measured on one core: audio prosody feature extraction (3 s clip) about 37 ms, Haar face detection (320x240) about 45 ms, versus under 0.5 ms for the speech and face networks and about 0.2 ms for fusion. Optimising the feature extractors and the detector (lower frame rate, smaller input, ROI tracking between frames) pays off more than shrinking the networks further.
+`scripts/run_text.sh` runs the sweep (lr × epochs), then the final gated run, then the edge benchmark and the report.
 
 ---
 
-## 5. Voice-prosody and facial modalities (same steps as text)
+## 5. Compression and the accuracy gate
 
-Same recipe for each: **train, calibrate (temperature), export ONNX, quantize, evaluate (accuracy, macro-F1, size, latency), save logits for fusion.**
+```mermaid
+flowchart LR
+  A[torch fp32<br/>test acc a0] --> B{round a0 to 0.1 pt<br/>>= 90.0 ?}
+  B -- no --> Z[write reason, stop]
+  B -- yes --> V1[ONNX fp32]
+  V1 --> V2[dynamic int8<br/>MatMul/Gemm]
+  B -- yes --> P[prune vocab to tokens<br/>seen in train+val]
+  P --> V3[pruned fp32] --> V4[pruned int8]
+  P --> E8[int8 embedding table] --> V5[pruned int8 + emb8]
+  V1 & V2 & V3 & V4 & V5 --> EV[evaluate each on test:<br/>acc, macro-F1, size,<br/>agreement with torch]
+  EV --> CH[deploy = smallest variant<br/>with drop <= 1.0 pt]
+```
 
-### 5.1 Voice prosody (`emotion_edge/speech`)
-
-- **Why prosody features and not a speech encoder:** wav2vec2 and HuBERT have 95 M or more parameters, which would swamp the budget set by a 67 M-parameter text model. Affect in the voice is largely paralinguistic (pitch level and movement, loudness, tempo, voicing, spectral tilt), and about 120 summary statistics capture it.
-- **Features** (`features.py`): F0 in semitones relative to 100 Hz (speaker-agnostic scale), its deltas, log-RMS and deltas, voiced ratio, jitter and shimmer proxies, onset rate (syllable-rate proxy), pause ratio, spectral centroid, rolloff, zero-crossing rate, and 13 MFCC means and standard deviations. Each statistic is summarised by mean, std, min, max, range, p10, p90 and slope. F0 uses YIN, which is much faster than pYIN; the summary statistics do not need pYIN's voicing posteriors.
-- **Verified:** a synthetic tone one octave higher reads 12 +/- 1.5 semitones higher, and higher tempo gives a higher onset rate (unit tests).
-- **Model:** 29 k-parameter MLP with input standardisation baked into the graph, feature-noise augmentation and label smoothing. Dynamic int8 export.
-- **Evaluation protocol (important):** train, validation and test are split **by actor**, never by utterance. Utterance-level splits leak speaker identity and inflate accuracy by a large margin. Datasets: RAVDESS (8 classes) or CREMA-D (6 classes).
-- **Quality signal for fusion:** `audio_quality()` (SNR estimate multiplied by voiced fraction) scales the modality's reliability so that noisy or silent audio is discounted.
-
-### 5.2 Facial expression (`emotion_edge/vision`)
-
-- **Detection:** OpenCV Haar cascade, largest face, crop to 48x48 grayscale. It is cheap and CPU-only. A tiny face lowers the reliability score fed to fusion; no face means the modality is dropped. A learned detector would be more robust on non-frontal faces, at higher cost.
-- **Model:** mini-Xception-style CNN with depthwise-separable blocks and global average pooling, 66 k parameters, 0.10 MB after static int8 (QDQ, per-channel, calibrated on 200 training images). Convolutions need static quantization; dynamic quantization only covers MatMul and Gemm.
-- **Training:** FER2013 (`fer2013.csv`), PublicTest for model selection and PrivateTest for the reported number. Flip, shift and brightness augmentation, label smoothing, one-cycle learning rate.
-- **Expectation management:** FER2013 labels are noisy, and small from-scratch CNNs are usually reported in the mid-60s to low-70s percent range. This is a literature expectation, not a measurement here.
-
----
-
-## 6. Probabilistic late fusion (`emotion_edge/fusion/fuse.py`)
-
-### 6.1 Why late, why probabilistic
-
-Early fusion (concatenating features before one classifier) needs time-aligned, complete inputs and a jointly trained model. On an edge device the modalities arrive at different rates, drop out (no face in frame, silence, no transcript), and come from different datasets with different label sets. Early fusion also hides disagreement between modalities, and disagreement is the very signal needed for ambiguity detection. Here each modality keeps its own calibrated model, and fusion works on posteriors.
-
-### 6.2 Algorithm
-
-For each available modality *m* with calibrated distribution p_m over its own labels:
-
-1. **Calibrate:** p_m = softmax(logits / T_m), with T_m fitted on validation data.
-2. **Project to the shared 8-class space** (anger, disgust, fear, joy, love, neutral, sadness, surprise) with a mapping matrix (`labels.py`). Examples: calm maps to neutral; happy maps to joy 0.85 plus love 0.15.
-3. **Coverage handling:** classes a modality cannot express receive the uniform level 1/|covered|. That means "no information", not "impossible". Text has no neutral class, so a text opinion must not veto neutral from face and voice (unit-tested).
-4. **Discount:** q~_m = r_m q_m + (1 - r_m)/K, with reliability r_m = input quality x base weight (SNR, face size, token count). A blurry face or noisy audio then loses influence smoothly, and a missing modality is simply absent.
-5. **Pool:** log P(y) = log prior(y) + sum over m of log q~_m(y), then normalise. This is a product of experts (log-opinion pool). The output is a full posterior, not just a label.
-
-### 6.3 Ambiguity typing
-
-A confidence threshold only says "unsure". Complex emotions need to know **why** the system is unsure, because the right response differs:
-
-| State | Trigger | Meaning and suggested action |
+| Variant | Technique | Why it exists |
 |---|---|---|
-| `confident` | Top-1 posterior >= `conf_p`, margin >= `margin`, experts agree | Act on the label |
-| `blend` | Top-2 are close **and** valence/arousal-compatible (for example joy and love) | Report a mixed emotion |
-| `ambiguous` | Top-2 are close but incompatible (for example joy versus anger) | Collect more evidence or ask |
-| `conflict` | Maximum pairwise Jensen-Shannon divergence between modalities, weighted by reliability, exceeds `conflict_jsd` | Incongruence: sarcasm, masking, a posed smile, or a failing sensor. Surface each modality's own reading |
-| `uncertain` | Normalised entropy above `entropy`, or top-1 below 0.30 | Abstain |
+| `onnx_fp32` | ONNX export (opset 17) | Baseline; proves export is lossless |
+| `onnx_int8` | ONNX Runtime **dynamic** int8: int8 weights, activations quantized at run time | No calibration data needed; robust to attention and LayerNorm activation outliers; the standard CPU choice for transformers (Jacob et al., 2018) |
+| `onnx_pruned_*` | Embedding rows kept only for wordpieces seen in train + validation; others map to `[UNK]` | Cuts about 12 M parameters (estimated at 15 k kept tokens). Kept tokens come from train + validation only, so test is not leaked; the accuracy effect is measured |
+| `onnx_pruned_int8_emb8` | Custom `Int8Embedding`: per-row int8 table, Gather → Cast → Mul(scale) | ORT's quantizer leaves Gather tables in fp32, so this is done by hand |
 
-Compatibility uses a coarse valence/arousal placement of the eight classes (`labels.VALENCE_AROUSAL`). `conflict` is evaluated first because a peaked pooled posterior can hide two experts that strongly disagree.
+### Sizes (measured, architecture-level, random weights; `scripts/arch_benchmark.py`)
 
-### 6.4 Validation on simulated modality outputs
-
-`emotion_edge/fusion/simulate.py` generates modality logits whose strengths **are assumptions**: roughly text 74 %, speech 62 % and face 60 % on the 8-class space. Text tops out near 75 % there because it cannot express two of the eight classes. Scenarios are clean, dropout, blend and incongruent. This validates the **logic**, not real-world accuracy. Results (6,000 held-out samples, thresholds tuned on a separate 1,500-sample set by maximising F1 of "flag for review"):
-
-- Fused accuracy on clean and dropout samples is 0.865, versus 0.741 for the best single modality.
-- Accuracy among samples reported as `confident` is 0.961 (coverage 0.50); among flagged samples it is 0.673. The selective-prediction curve rises monotonically as coverage falls.
-- Flag rates by scenario: clean 0.37, dropout 0.55, blend 0.64, incongruent 0.80. The flag rate on clean data is high because the simulated speech and face channels are weak, so many samples are legitimately uncertain.
-
-**Threshold caveat.** The tuned thresholds are specific to the simulator. On real data, re-tune them with `tune_thresholds`, using the saved validation logits of the three real models and **human ambiguity annotations** (for example, "this clip is a blend" or "face and voice disagree"). The "should flag" label in the simulator is a stand-in for that.
-
-### 6.5 Real-time use
-
-`fuse()` takes a list of whichever modalities are available, so partial input works. Fusion costs about 0.2 ms. For streams, run it on a sliding window (for example, the last 3 s of audio, the most recent face crop, the most recent utterance) and smooth the posterior over time. Temporal smoothing is not implemented yet.
-
----
-
-## 7. Decision log
-
-| # | Decision | Alternatives considered | Why |
+| Variant | Parameters | File | Peak RSS (1 core) |
 |---|---|---|---|
-| D1 | Plain PyTorch loop instead of HF `Trainer` | `Trainer` | Full control over length bucketing, the best-validation checkpoint and optional distillation, with no hidden callbacks |
-| D2 | Select on validation, report test once per run | Pick on test | Avoids optimistic bias; the gate is judged on an unbiased estimate |
-| D3 | ONNX Runtime as the deployment format | TFLite, ExecuTorch, torch dynamic quantization | One format for transformer, MLP and CNN; good CPU kernels on x86 and ARM; quantization tooling for both dynamic and static modes |
-| D4 | Dynamic int8 for transformer and MLP, static (QDQ) int8 for CNN | Static for everything | Dynamic quantization needs no calibration data and avoids activation-range problems in attention; convolutions need static to benefit |
-| D5 | Custom int8 embedding table | Leave it fp32 | The table is 36 % of parameters and ORT leaves it fp32 |
-| D6 | Vocabulary pruning from train plus validation tokens | Keep the full vocab | Cuts about 12 M parameters; unseen test tokens become `[UNK]`, and accuracy impact is measured, not assumed |
-| D7 | Accept a quantized variant only if the drop is at most 1.0 pt | Accept any | Keeps the gate meaningful after compression |
-| D8 | Prosody features and a small MLP instead of a speech foundation model | wav2vec2, HuBERT | Parameter budget and latency; these cues are paralinguistic |
-| D9 | Actor-independent splits for speech | Random utterance splits | Prevents speaker leakage |
-| D10 | Late fusion by log-opinion pool with a reliability discount | Early fusion, Dempster-Shafer, learned stacking | Handles dropout and mismatched label sets, keeps disagreement observable, needs no joint training data |
-| D11 | Shared 8-class canonical space with coverage masks | Intersect labels (6 or fewer classes) | Keeps neutral and disgust, which face and voice can express, without letting text veto them |
-| D12 | Typed ambiguity states instead of one threshold | Entropy only | Blend, conflict and uncertainty call for different actions |
-| D13 | Report macro-F1, the confusion matrix and calibration (ECE) next to accuracy | Accuracy only | Class imbalance and the need for trustworthy probabilities in fusion |
-| D14 | Do not report accuracy numbers from synthetic or random-weight runs as results | Show smoke-test accuracy | They only prove the code path. Everything synthetic is labelled in the JSON (`"synthetic": true`) and in RESULTS.md |
+| fp32 | 66.96 M | 267.7 MB | 429 MB |
+| int8 | 66.96 M | 138.6 MB | 279 MB |
+| pruned (15 k) fp32 | ~55 M | 220.0 MB | |
+| pruned (15 k) int8 + int8 embeddings | ~55 M | **56.5 MB** | **157 MB** |
+
+The real kept-vocabulary size comes from the data and is written to `results.json` (`vocab_pruning.kept`). 15 k is an assumption used only for this size and latency measurement.
 
 ---
 
-## 8. Limitations and risks
+## 6. Edge-device simulation
 
-- **Text domain shift.** dair-ai texts are tweets with hashtag-derived labels. Transcripts of speech, chat messages and long text differ. Validate on in-domain text before trusting scores in a product.
-- **Emotion recognition is inference of expressed affect, not of inner state.** Facial expression and voice vary with culture, individual and context. Outputs should be treated as probabilistic signals, and the `conflict` and `blend` states exist partly for this reason.
-- **Fairness and consent.** FER2013 and acted-speech corpora are demographically narrow. Measure per-group error before deployment, and process video and audio on-device with consent. This design keeps all inference local, which helps.
-- **Simulator thresholds** are not real-data thresholds (section 6.4).
-- **Edge numbers** are host-based proxies (section 4.1).
-- **Speech to text** is out of scope. The text modality assumes a transcript exists. An on-device ASR would add its own latency and size budget.
-- No temporal modelling yet (section 6.5).
+### 6.1 Method
+
+The sandbox has no ARM board, so `emotion_edge/edge/bench.py` **constrains the host CPU** to behave like a smaller device. Each scenario runs in a fresh subprocess.
+
+| Scenario | Mechanism | Stands in for |
+|---|---|---|
+| `host_4core` | 4 cores, 4 threads | Upper bound |
+| `sbc_2core` | `sched_setaffinity` to 2 cores, 2 threads | Small SBC or phone little cluster |
+| `sbc_1core` | 1 core, 1 thread | Cheapest SBC, or the share left for NLP beside audio and video |
+| `sbc_1core_contended` | 1 core plus a busy-loop process on it | Noisy neighbour or thermal throttling |
+| `mem_capped_1core` | `RLIMIT_AS` = 1.1 GB | Memory-limited device (see caveat) |
+| Load test | Poisson arrivals, one worker, measured service times (M/G/1 by simulation) | Several concurrent streams |
+
+**Caveats.**
+- No ARM, cache or clock emulation: absolute milliseconds are host numbers, and relative comparisons transfer better. `--slowdown` applies a ratio measured once on real hardware, and the output is labelled as a projection.
+- `RLIMIT_AS` limits address space, not resident memory, and did not bind. Peak RSS is the evidence for memory fit.
+- Four-thread results on short sequences are noisy (threading overhead exceeds the work). Decide on the 1-core and 2-core rows.
+
+### 6.2 Results (architecture-level, random weights; `results/edge_text_arch.json`)
+
+![Edge latency](figures/edge_text_arch.png)
+
+| Variant, 1 core | p50 @16 tok | p50 @32 | p50 @64 | p95 @32 |
+|---|---|---|---|---|
+| fp32 | 26.3 ms | 40.8 ms | 66.7 ms | 48.9 ms |
+| int8 | 9.2 ms | 15.2 ms | 25.8 ms | 18.4 ms |
+| pruned int8 + emb8 | 9.9 ms | 16.5 ms | 24.1 ms | 19.9 ms |
+
+What the results show:
+- **int8 is about 2.7x faster** than fp32 on one core (32 tokens).
+- **Pruning and int8 embeddings save memory, not time:** peak RSS falls from 279 MB to 157 MB and the file from 139 MB to 56.5 MB, at the same latency.
+- **Contention roughly doubles latency**, so budgets need that margin.
+- **Load:** fp32 saturates before 20 requests/s; int8 holds p95 of 90 ms at 20/s.
+
+![Queueing](figures/queue_text_arch.png)
+
+### 6.3 End-to-end latency budget (one core, random weights; `results/multimodal_latency.json`)
+
+![Latency budget](figures/latency_budget.png)
+
+The neural networks are **not** the bottleneck. Face detection (about 45 ms per frame) and prosody feature extraction (about 37 ms per 3 s segment) dominate, against under 0.5 ms for the speech and face networks. At the default rates the whole pipeline uses about 20 % of one core (LIVE_PIPELINE section 5).
 
 ---
 
-## 9. Repository map
+## 7. Voice-prosody track
+
+| Step | What | Why |
+|---|---|---|
+| Features (`speech/features.py`) | About 130 summary statistics:<br/>• F0 in semitones relative to 100 Hz (YIN; de Cheveigné & Kawahara, 2002), and its deltas<br/>• log-RMS and deltas<br/>• voiced ratio, jitter and shimmer proxies<br/>• onset rate (tempo proxy), pause ratio<br/>• spectral centroid, rolloff, ZCR<br/>• 13 MFCC means and standard deviations<br/>Each statistic is summarised by mean, std, min, max, range, p10, p90 and slope | Affect in the voice is largely paralinguistic. This mirrors the reasoning behind compact standard sets such as eGeMAPS (Eyben et al., 2016). Semitones make pitch speaker-agnostic |
+| Model | 29 k-parameter MLP; standardisation baked into the graph; feature-noise augmentation; label smoothing | Tiny, robust, int8-friendly |
+| Split | **By actor** (RAVDESS: Livingstone & Russo, 2018; CREMA-D: Cao et al., 2014) | Utterance-level splits leak speaker identity and inflate accuracy |
+| Export | ONNX + dynamic int8 (0.03 MB) | |
+| Quality signal | SNR estimate x voiced fraction | Fusion and the temporal layer discount noisy segments |
+| Verified | An octave pitch shift reads 12 ± 1.5 semitones; faster tempo gives a higher onset rate; the int8 model agrees with the torch model on > 90 % of samples | Unit tests on synthetic signals |
+
+Why not wav2vec2 or HuBERT: 95 M+ parameters would exceed the whole text model's budget. They are a later upgrade if accuracy demands it and the hardware allows.
+
+---
+
+## 8. Facial-expression track
+
+| Step | What | Why |
+|---|---|---|
+| Detection | OpenCV Haar cascade (Viola & Jones, 2001), largest face, 48x48 grayscale crop. OpenCV is pinned below 5.0, which removed the cascade API | CPU-cheap; a tiny face lowers reliability; no face means the modality is absent |
+| Model | Mini-Xception-style CNN (Arriaga et al., 2017): depthwise-separable blocks, global average pooling, **66 k parameters** | Proven small-model recipe for FER2013 |
+| Training | FER2013 (Goodfellow et al., 2013): flip, shift, brightness, label smoothing, one-cycle learning rate; PublicTest for selection, PrivateTest reported once | |
+| Export | ONNX + **static** int8 (QDQ, per-channel, 200 calibration images), 0.10 MB | Convolutions need static quantization to benefit |
+| Verified | Train → export → int8 round trip; int8 agrees with the torch model on > 80 % of samples (tiny synthetic task) | |
+
+Expectation: small FER2013 CNNs are usually reported in the mid-60s to low-70s percent. Expression is not inner state (Barrett et al., 2019), so fusion treats face as one noisy voice among three.
+
+---
+
+## 9. Probabilistic late fusion and ambiguity
+
+### 9.1 Why late fusion
+
+On device, the modalities arrive at different rates, drop out, come from different datasets with different label sets, and can legitimately **disagree**. Early fusion (concatenating features) needs time-aligned, complete, jointly labelled inputs, and it hides disagreement inside one classifier. Late fusion of calibrated posteriors keeps each model independent and makes disagreement measurable (Baltrušaitis, Ahuja & Morency, 2019).
+
+### 9.2 Algorithm (`fusion/fuse.py`)
+
+```mermaid
+flowchart LR
+  L["logits_m"] --> T["softmax(logits / T_m)<br/>calibrated p_m"] --> P["project to 8 canonical<br/>via mapping matrix"]
+  P --> C["uncovered classes:<br/>uniform level"]
+  C --> D["discount by reliability r_m:<br/>r·q + (1 - r)/K"]
+  D --> POOL["log-opinion pool<br/>Σ log q̃_m + log prior"]
+  POOL --> TYPE{ambiguity typing}
+  TYPE --> S1[confident]
+  TYPE --> S2[blend]
+  TYPE --> S3[ambiguous]
+  TYPE --> S4[conflict]
+  TYPE --> S5[uncertain]
+```
+
+- **Canonical space:** anger, disgust, fear, joy, love, neutral, sadness, surprise. The mapping matrices are in `labels.py`; for example, happy maps to joy 0.85 + love 0.15, and calm maps to neutral.
+- **Coverage:** text has no neutral class, so its opinion on neutral is set to "no information" rather than "impossible". This lets face and voice establish neutral (unit-tested).
+- **Reliability:** input quality (text length, audio SNR, face size) times a per-modality base weight.
+- **Pool:** a weighted product of experts (Hinton, 2002; Genest & Zidek, 1986). The output is a full posterior.
+
+### 9.3 Ambiguity typing
+
+| State | Trigger | Suggested action |
+|---|---|---|
+| `confident` | Top-1 >= `conf_p`, margin >= `margin`, experts agree | Act |
+| `blend` | Top-2 close and valence/arousal-compatible (joy + love) | Report a mixed emotion |
+| `ambiguous` | Top-2 close but incompatible (joy vs anger) | Gather more evidence or ask |
+| `conflict` | Reliability-weighted max pairwise JSD > `conflict_jsd` | Incongruence (sarcasm, masking, sensor fault, cf. Castro et al., 2019); show each modality's reading |
+| `uncertain` | Normalised entropy high or top-1 < 0.3 | Abstain |
+
+### 9.4 Validation (simulated modality outputs; `results/fusion_sim.json`)
+
+![Fusion](figures/fusion_sim.png)
+
+| Result | Value |
+|---|---|
+| Fused accuracy on clean and dropout samples | 0.865, against 0.741 for the best single modality |
+| Accuracy when the state is `confident` | 0.961 (coverage 0.50) |
+| Accuracy when flagged | 0.673 |
+| Flag rate by scenario | clean 0.37, dropout 0.55, blend 0.64, incongruent 0.80 |
+
+Thresholds were tuned on a separate simulated set. They **must be re-tuned** on real validation logits with human ambiguity labels (`fusion.simulate.tune_thresholds`).
+
+---
+
+## 10. Temporal layer and live pipeline
+
+Full design: [TEMPORAL_DESIGN.md](TEMPORAL_DESIGN.md). Operations: [LIVE_PIPELINE.md](LIVE_PIPELINE.md).
+
+| Question | Answer in this system |
+|---|---|
+| When is a block complete? | **Text:** sentence end (>= 3 words), pause >= 1.2 s, 40-word cap, or speaker change; short fragments merge forward. **Voice:** energy VAD, closes after a 0.4 s pause, 0.8-6 s segments, 0.5 s overlap on force-split. **Face:** 4 fps sampled frames |
+| Text as a temporal feature? | Classify each utterance block (matches the training distribution), then pool **in probability space over time**. This was preferred to concatenating text or pooling embeddings (TEMPORAL_DESIGN section 5) |
+| Instant emotion | Per-modality **sticky HMM filter**: time-aware stickiness exp(-Δt/dwell), scaled-likelihood updates tempered by quality. Stale modalities decay to the base rate automatically. Fused every 0.5 s with ambiguity typing |
+| Overall mood | Per-modality **Dirichlet evidence** over the window (reliability × independence × recency × informativeness weights), fused by adding evidence. Outputs: mixture, 90 % credible intervals, **P(dominant)**, and a state: dominant / leaning / mixed / conflicted / transition / insufficient |
+| Behavioural pattern | Valence/arousal dynamics of the filtered state: variability, MSSD instability, inertia, trend, switch rate. Tags: stable, shifting, volatile, escalating, de-escalating, flat, incongruent |
+
+Evaluation on the synthetic scripted session (`results/temporal_eval.json`, 10 seeds), temporal layer versus static per-tick fusion:
+- **Accuracy:** 0.76 → **0.96**.
+- **Label switches per minute:** 43 → **1.9**.
+- **Transition latency:** 3.6 s → **1.5 s**.
+- **Masking flagged as `conflict`:** 0.23 → **0.70**, with unchanged false alarms (0.05).
+
+![Timeline](figures/live_timeline.png)
+
+---
+
+## 11. Decision log
+
+| # | Decision | Alternatives | Reason |
+|---|---|---|---|
+| D1 | Plain PyTorch training loop | HF `Trainer` | Control over bucketing, best-validation checkpoint and distillation; no hidden callbacks |
+| D2 | Select on validation, report test once | Select on test | Unbiased gate |
+| D3 | ONNX Runtime for deployment | TFLite, ExecuTorch | One runtime for transformer, MLP and CNN; mature CPU kernels on x86 and ARM |
+| D4 | Dynamic int8 for transformer and MLP; static QDQ for CNN | Static everywhere | Dynamic needs no calibration and is safe for attention; convolutions need static |
+| D5 | Custom int8 embedding table | Leave fp32 | 36 % of parameters, untouched by ORT |
+| D6 | Vocabulary pruning from train + validation tokens | Full vocabulary | Smaller file and RSS; measured, not assumed |
+| D7 | Accept a quantized variant only if the drop is <= 1.0 pt | Accept any | Keeps the 90 % gate meaningful after compression |
+| D8 | Prosody statistics + MLP | wav2vec2 / HuBERT | Size and latency; affect is paralinguistic |
+| D9 | Actor-independent speech splits | Random splits | Prevents speaker leakage |
+| D10 | Late fusion by reliability-discounted log-opinion pool | Early fusion, Dempster-Shafer, learned stacking | Handles dropout and mismatched labels, keeps disagreement visible, needs no joint data |
+| D11 | 8-class canonical space with coverage masks | Label intersection | Keeps neutral and disgust without letting text veto them |
+| D12 | Typed ambiguity states | Single entropy threshold | Blend, conflict and uncertainty need different responses |
+| D13 | Macro-F1, confusion matrix and ECE next to accuracy | Accuracy only | Imbalance; trustworthy probabilities |
+| D14 | Never report synthetic or random-weight runs as accuracy | | Integrity; every such file carries `"synthetic": true` |
+| D15 | Per-utterance text classification, then temporal pooling in probability space | Concatenate window text; pool embeddings | Matches the training distribution; streaming; uncertainty per block (TEMPORAL_DESIGN section 5) |
+| D16 | Sticky HMM filter for the instant emotion | EMA, majority vote, learned HMM, LSTM | Time-aware, quality-aware, staleness built in, one parameter, no training data needed |
+| D17 | Dirichlet evidence for the window mood | Average probabilities, majority vote | Gives P(dominant), credible intervals and n_eff; handles correlated frames via τ_c; transitions detectable |
+| D18 | Mood evidence from per-block distributions, not filtered beliefs | Pool filtered beliefs | Filtered beliefs are autocorrelated and would count evidence twice |
+| D19 | Cross-modal mood fusion by adding evidence | Pool modality means | Exact Bayesian update under independence; evidence-rich modalities weigh more automatically |
+| D20 | A `transition` mood state (half-window comparison) | Treat as mixed or conflicted | A first evaluation showed sequential emotions being mislabelled as simultaneous |
+| D21 | Behaviour metrics on valence/arousal, tags with explicit thresholds | Learned pattern classifier | Matches the affect-dynamics literature; transparent; no labelled data available |
+| D22 | Offline files replayed through the live code path | Separate batch path | One code path to test and tune; deterministic |
+| D23 | Face at 4 fps with Haar detection | Every frame; neural detector | Detection dominates cost; 4 fps still sees every expression |
+
+---
+
+## 12. Limitations, risks, ethics
+
+- **The headline accuracy is pending.** Everything else is ready for it.
+- **Synthetic validation of fusion and temporal logic.** The noise models are assumptions. The next step is real multimodal recordings with human labels (instant emotion, window mood, mixed / masked / escalating), then tuning thresholds, dwell and τ_c.
+- **Domain shift.** dair-ai texts are tweets with hashtag-derived labels; conversation transcripts differ. FER2013 and acted speech corpora differ from spontaneous behaviour.
+- **Expressed affect is not inner state** (Barrett et al., 2019). Outputs are probabilistic descriptions of expression; the `conflict`, `blend` and `uncertain` states exist to avoid false certainty.
+- **Behavioural tags are heuristics** over seconds to minutes, not clinical constructs.
+- **Fairness.** The training corpora are demographically narrow. Measure per-group error before any deployment.
+- **Consent and privacy.** Continuous tracking needs informed consent. Inference is on device and only derived probabilities need to leave it.
+- **Edge numbers are host-based proxies** (section 6.1).
+- **Real-time capture** (camera and microphone threads) is implemented but untested here.
+
+---
+
+## 13. Repository map
 
 ```
-emotion_edge/labels.py            label sets, canonical space, mapping matrices, valence/arousal
-emotion_edge/common/              ONNX export and quantization helpers, metrics, temperature scaling
-emotion_edge/text/                data loading, model + vocab pruning + int8 embedding, pipeline CLI
-emotion_edge/speech/              prosody features, MLP training and export
-emotion_edge/vision/              mini-Xception, face detection and crop, training and export
-emotion_edge/fusion/              fuse.py (algorithm), simulate.py (synthetic validation + threshold tuning)
-emotion_edge/edge/bench.py        edge scenarios + queueing simulation
-emotion_edge/report.py            figures + docs/RESULTS.md
-scripts/                          run_text.sh, arch_benchmark.py, multimodal_latency.py, run_fusion_sim.py, run_edge_bench.py
-tests/                            fusion rules, prosody features, speech and face export/quantization round trips
+emotion_edge/
+  labels.py              label sets, canonical space, mapping matrices, valence/arousal placement
+  common/                ONNX export + quantization helpers; metrics, ECE, temperature scaling
+  text/                  data (Hub / offline / synthetic), model (+ vocab pruning, Int8Embedding), pipeline CLI
+  speech/                prosody features + audio quality; MLP training, actor split, export
+  vision/                mini-Xception; Haar detection + crop; training, static int8 export
+  fusion/                fuse.py (pool + ambiguity), simulate.py (synthetic validation, threshold tuning)
+  temporal/              segment.py, tracker.py (filter, Dirichlet mood, behaviour), session.py, evaluate.py, viz.py
+  live/                  sources.py (files, real time), predictors.py (ONNX wrappers), pipeline.py, scenario.py
+  edge/bench.py          edge scenarios + queueing simulation
+  report.py              docs/RESULTS.md + figures
+scripts/                 run_text.sh, live.py, arch_benchmark.py, run_edge_bench.py, multimodal_latency.py, run_fusion_sim.py
+tests/                   fusion, speech/vision round trips, temporal, live files integration (27 tests)
+notebooks/               colab_text_run.ipynb (GPU run of the text track)
+docs/                    this file, TEMPORAL_DESIGN.md, LIVE_PIPELINE.md, RESULTS.md, figures/
 ```
 
 ---
 
-## 10. Reproduce
+## 14. Reproduce
 
 ```bash
-python -m venv .venv && . .venv/bin/activate && pip install -r requirements.txt
-export PYTHONPATH=$PWD
-pytest -q tests                                   # 13 tests; no network needed
-python -m emotion_edge.text.pipeline --smoke --out artifacts/smoke --epochs 6 --lr 1e-3   # code-path check (synthetic)
-python scripts/arch_benchmark.py artifacts/arch   # random-weight, full-size DistilBERT: sizes
-python scripts/run_edge_bench.py --kind text --out results/edge_text_arch.json \
-    fp32=artifacts/arch/fp32.onnx int8=artifacts/arch/int8.onnx pruned15k_int8_emb8=artifacts/arch/pruned15k_int8_emb8.onnx
-python scripts/multimodal_latency.py results/multimodal_latency.json
-python scripts/run_fusion_sim.py
-python -m emotion_edge.report                     # regenerates docs/RESULTS.md and docs/figures/*
+pip install -r requirements.txt
+make test                          # 27 tests, no network
+make smoke                         # text pipeline on synthetic data (code path only)
+make arch edge latency             # architecture-level size and edge latency (random weights)
+make fusion                        # fusion validation (simulated outputs)
+python scripts/live.py demo        # live pipeline demo + temporal figures + 10-seed evaluation
+make report                        # regenerate docs/RESULTS.md
 
-# REAL text run (needs huggingface.co, or DATA_DIR + MODEL for offline use)
-scripts/run_text.sh
-# speech / face: see scripts/run_speech_face.md
+make real-text                     # REAL text run: needs huggingface.co, or DATA_DIR + MODEL
+# speech / face training: scripts/run_speech_face.md
 ```
 
-Run order for the full real result: `run_text.sh`, then the speech and face trainers, then re-tune fusion thresholds on the saved real validation logits, then `python -m emotion_edge.report`.
+Full order once data is reachable:
+1. `make real-text`
+2. Train speech and face.
+3. Re-tune fusion thresholds and temporal parameters on the real validation logits and recordings.
+4. `python scripts/live.py files ...` on annotated sessions.
+5. `make report`.
+
+---
+
+## 15. Glossary
+
+| Term | Meaning |
+|---|---|
+| Block | One unit sent to a model: a text utterance, a voiced audio segment, a sampled face frame |
+| Calibration (temperature) | Rescaling logits so that predicted probabilities match observed accuracy |
+| Canonical space | The shared 8-emotion label set used for fusion |
+| Coverage | Which canonical classes a modality can express |
+| Dwell | How long an instant reading stays relevant without new evidence (filter time constant) |
+| ECE | Expected calibration error |
+| Informativeness | 1 minus normalised entropy: 0 for "knows nothing", 1 for certain |
+| JSD | Jensen-Shannon divergence, a bounded measure of disagreement between two distributions |
+| MSSD | Mean squared successive difference, the instability of a time series |
+| n_eff | Effective number of independent, informative observations behind a mood estimate |
+| P(dominant) | Probability, under the Dirichlet posterior, that the reported mood is the largest share |
+| τ_c | Correlation time: one unit of mood evidence per τ_c seconds of observation |
+
+---
+
+## References
+
+Arriaga, O., Valdenegro-Toro, M., & Plöger, P. (2017). Real-time convolutional neural networks for emotion and gender classification. arXiv:1710.07557 ·
+Baltrušaitis, T., Ahuja, C., & Morency, L.-P. (2019). Multimodal machine learning: a survey and taxonomy. *IEEE TPAMI* ·
+Barrett, L. F., et al. (2019). Emotional expressions reconsidered. *Psychological Science in the Public Interest* ·
+Cao, H., et al. (2014). CREMA-D: crowd-sourced emotional multimodal actors dataset. *IEEE Trans. Affective Computing* ·
+Castro, S., et al. (2019). Towards multimodal sarcasm detection. *ACL* ·
+de Cheveigné, A., & Kawahara, H. (2002). YIN, a fundamental frequency estimator for speech and music. *JASA* ·
+Eyben, F., et al. (2016). The Geneva Minimalistic Acoustic Parameter Set (GeMAPS). *IEEE Trans. Affective Computing* ·
+Genest, C., & Zidek, J. V. (1986). Combining probability distributions. *Statistical Science* ·
+Goodfellow, I., et al. (2013). Challenges in representation learning: a report on three machine learning contests. *ICONIP* ·
+Guo, C., et al. (2017). On calibration of modern neural networks. *ICML* ·
+Hinton, G. (2002). Training products of experts by minimizing contrastive divergence. *Neural Computation* ·
+Hinton, G., Vinyals, O., & Dean, J. (2015). Distilling the knowledge in a neural network. arXiv:1503.02531 ·
+Jacob, B., et al. (2018). Quantization and training of neural networks for efficient integer-arithmetic-only inference. *CVPR* ·
+Livingstone, S. R., & Russo, F. A. (2018). The Ryerson Audio-Visual Database of Emotional Speech and Song (RAVDESS). *PLoS ONE* ·
+Sanh, V., et al. (2019). DistilBERT, a distilled version of BERT. arXiv:1910.01108 ·
+Saravia, E., et al. (2018). CARER: contextualized affect representations for emotion recognition. *EMNLP* ·
+Viola, P., & Jones, M. (2001). Rapid object detection using a boosted cascade of simple features. *CVPR*.
+Temporal-layer references are listed in [TEMPORAL_DESIGN.md](TEMPORAL_DESIGN.md#14-references).

@@ -103,17 +103,28 @@ def fuse(mods: list[Modality], prior: np.ndarray | None = None, th: Thresholds =
     mods = [m for m in mods if m is not None and (m.logits is not None or m.probs is not None)]
     if not mods:
         raise ValueError("no modality available")
-    logp = np.log(prior if prior is not None else np.full(K, 1.0 / K))
     qs, per = {}, {}
     for m in mods:
         p = _norm_probs(m)
         q = to_canonical(p, m.name)
         r = float(np.clip(m.quality * m.base_weight, 0, 1))
-        qd = discount(q, r)
-        qs[m.name] = qd
-        logp = logp + np.log(qd)               # discounting already scales the influence; weight folded into r
+        qs[m.name] = discount(q, r)            # discounting already scales the influence; weight folded into r
         per[m.name] = {"top": CANON[int(q.argmax())], "p_top": round(float(q.max()), 3), "reliability": round(r, 3),
                        "entropy": round(entropy_norm(p), 3)}
+    return fuse_canonical(qs, per, prior, th)
+
+
+def fuse_canonical(qs: dict[str, np.ndarray], per: dict[str, dict], prior: np.ndarray | None = None,
+                   th: Thresholds = Thresholds()) -> Fused:
+    """Pool opinions that are already in the canonical space and type the ambiguity.
+
+    qs[m]  : canonical distribution of expert m, *without* the prior baked in (a likelihood-like opinion).
+    per[m] : must contain "reliability" (in [0,1], scales the conflict test) and "top".
+    Used directly by fuse() for single observations and by the temporal layer for filtered beliefs and window moods.
+    """
+    logp = np.log(prior if prior is not None else np.full(K, 1.0 / K))
+    for q in qs.values():
+        logp = logp + np.log(np.clip(q, 1e-12, None))
     post = softmax(logp)
     order = np.argsort(-post)
     i1, i2 = int(order[0]), int(order[1])
@@ -126,7 +137,7 @@ def fuse(mods: list[Modality], prior: np.ndarray | None = None, th: Thresholds =
             ra, rb = per[names[a]]["reliability"], per[names[b]]["reliability"]
             conflict = max(conflict, jsd(qs[names[a]], qs[names[b]]) * min(1.0, 2 * min(ra, rb)))
     compat = _VA_DIST[i1, i2] < th.compat_dist
-    if conflict > th.conflict_jsd and len(mods) > 1:
+    if conflict > th.conflict_jsd and len(names) > 1:
         state = "conflict"
     elif H > th.entropy or p1 < 0.30:
         state = "uncertain"
