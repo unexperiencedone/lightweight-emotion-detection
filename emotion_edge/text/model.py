@@ -82,7 +82,8 @@ def predict_logits(model, tok: Tok, texts, bs=128):
     for i in range(0, len(texts), bs):
         sel = order[i:i + bs]
         ids, mask = tok([texts[j] for j in sel])
-        out[sel] = model(input_ids=torch.from_numpy(ids), attention_mask=torch.from_numpy(mask)).logits.numpy()
+        dev = next(model.parameters()).device
+        out[sel] = model(input_ids=torch.from_numpy(ids).to(dev), attention_mask=torch.from_numpy(mask).to(dev)).logits.float().cpu().numpy()
     return out
 
 
@@ -91,6 +92,12 @@ def train(model, tok: Tok, tr, va, *, epochs=3, lr=5e-5, bs=32, wd=0.01, warmup=
     """Fine-tune; keep the epoch with the best *validation* accuracy. Returns (model, history)."""
     torch.manual_seed(seed)
     rng = np.random.default_rng(seed)
+    # train on GPU when one is present (Colab etc.); the trained model is returned on CPU for export / edge inference
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model.to(device)
+    if teacher is not None:
+        teacher.to(device)
+    log(f"training on {device}")
     texts, y = list(tr.text), tr.label.values
     steps = epochs * math.ceil(len(texts) / bs)
     no_decay = ["bias", "LayerNorm.weight"]
@@ -111,7 +118,7 @@ def train(model, tok: Tok, tr, va, *, epochs=3, lr=5e-5, bs=32, wd=0.01, warmup=
         rng.shuffle(bl)
         for sel in bl:
             ids, mask = tok([texts[j] for j in sel])
-            ids_t, mask_t, yt = torch.from_numpy(ids), torch.from_numpy(mask), torch.from_numpy(y[sel])
+            ids_t, mask_t, yt = (torch.from_numpy(a).to(device) for a in (ids, mask, y[sel]))
             logits = model(input_ids=ids_t, attention_mask=mask_t).logits
             loss = F.cross_entropy(logits, yt, label_smoothing=label_smoothing)
             if teacher is not None:
@@ -133,6 +140,7 @@ def train(model, tok: Tok, tr, va, *, epochs=3, lr=5e-5, bs=32, wd=0.01, warmup=
         if acc > best:
             best, best_state = acc, {k: v.clone() for k, v in model.state_dict().items()}
     model.load_state_dict(best_state)
+    model.to("cpu")
     return model, hist
 
 
