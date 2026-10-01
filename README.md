@@ -25,13 +25,13 @@ flowchart LR
 |---|---|
 | Real DistilBERT accuracy on dair-ai/emotion | **Not measured yet.** The build sandbox blocked `huggingface.co`. Run `make real-text` or `notebooks/colab_text_run.ipynb` |
 | Edge size and latency (full DistilBERT architecture) | Measured: 268 MB → **56.5 MB**; 40.8 → **15.2 ms** per 32-token input on one core (random weights; timing and size are weight-independent) |
-| Voice and face models | **Trained on real CREMA-D audio+video** (15 unseen test actors): voice 54.0 % (humans by voice only: 46.7 %), face 56.9 % (humans: 70.2 %), **fused 68.4 %** (humans with audio+video: 76.5 %); int8 costs no accuracy |
+| Voice and face models | **Trained on real CREMA-D audio+video** (15 unseen test actors):<br/>• voice **69.4 %** with a pretrained DistilHuBERT encoder (humans by voice only: 46.7 %)<br/>• face 58.5 % from an ensemble of two models (humans: 70.2 %)<br/>• **fused 75.7 %**, against 76.5 % for humans with audio+video<br/>Details in [docs/REAL_DATA_STUDY.md](docs/REAL_DATA_STUDY.md) section 4b |
 | Fusion and temporal layer | **Real data:**<br/>• fusion is calibrated (ECE 0.04) and can answer 38 % of clips at 90 % accuracy while flagging the rest<br/>• the temporal layer cuts label flicker 3x but does not raise instant accuracy<br/>• the mood P(dominant) is calibrated (ECE 0.06-0.07)<br/>• the `conflict` signal is **not validated** (AUROC 0.52)<br/>Details in [docs/REAL_DATA_STUDY.md](docs/REAL_DATA_STUDY.md) |
 | Tests | 29 passing (`make test`) |
 
-![Models vs humans](docs/figures/real_vs_humans.png)
+![Upgrade](docs/figures/real_upgrade.png)
 
-*Real recordings (CREMA-D, 15 unseen actors): the voice model beats human raters judging by voice alone, the face model trails them, and calibrated late fusion adds 11.5 points over the best single modality.*
+*Real recordings (CREMA-D, 15 unseen actors): pretrained encoders lifted voice from 54 % to 69 %, and calibrated late fusion of voice and face now reaches 75.7 %, within a point of human raters (76.5 %).*
 
 ## Quickstart
 

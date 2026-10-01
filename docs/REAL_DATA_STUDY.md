@@ -182,6 +182,55 @@ The voice model's reading becomes available at the *end* of each sentence, as it
 
 ---
 
+## 4b. Upgrading the voice and face models with pretrained encoders
+
+The first models learned from scratch on about 5,000 training clips. With Hugging Face reachable, I tested pretrained encoders, keeping the same 61 / 15 / 15 actor split. All choices were made on validation actors, and test actors were reported once (`results/upgrade.json`).
+
+| Modality | Model | Pretrained on | Test accuracy | Edge size | Edge latency |
+|---|---|---|---|---|---|
+| Voice | 88 prosody features + MLP (first version) | Nothing | 54.0 % | 0.035 MB | ~30 ms per segment for the features |
+| Voice | **DistilHuBERT (frozen) + head**: learned layer weights, mean/std pooling, MLP | 960 h of speech (LibriSpeech) | **69.4 %** (int8: **69.1 %**) | 50.8 MB int8, one graph from raw audio to logits | 45 ms per ~2.5 s clip, 4 threads |
+| Face | Mini-Xception, 48x48 (first version) | Nothing | 56.9 % | 0.10 MB | < 1 ms per frame |
+| Face | MobileNetV3-large, 112x112, fine-tuned | ImageNet (objects) | 52.3 %: **worse** | | |
+| Face | HSEmotion EfficientNet-B0 (frozen) + head | AffectNet (facial expressions) | 53.5 % (zero-shot, no CREMA-D training: 46.2 %) | 16.1 MB fp32 | 14 ms per frame, 1 thread |
+| Face | **Ensemble: mini-Xception + HSEmotion** | | **58.5 %** | 16.2 MB | ~15 ms per frame |
+
+Humans on the same clips: 46.7 % from voice only and 70.2 % from face only.
+
+**Fused (voice + face, clip level, test actors):**
+
+| Voice + face | Test accuracy | Answered as `confident` | Accuracy when answered | ECE |
+|---|---|---|---|---|
+| Prosody MLP + mini-Xception (first version) | 68.4 % | 37.8 % | 90.1 % | 0.039 |
+| DistilHuBERT + mini-Xception (**lean edge configuration**) | 75.6 % | 41.4 % | 91.7 % | 0.060 |
+| DistilHuBERT + face ensemble (**full configuration**) | **75.7 %** | **51.4 %** | 91.3 % | **0.042** |
+| *Human raters, audio + video* | *76.5 %* | | | |
+
+![upgrade](figures/real_upgrade.png)
+
+**What this shows:**
+1. **Pretraining helps only when it matches the task.**
+   - Speech pretraining lifted voice by 15 points; the model now beats human voice-only raters by 23 points. Every emotion improved; fear is still the weakest at 54 %.
+   - ImageNet pretraining *hurt* face. On 61 training actors the larger model memorised individuals.
+   - Expression pretraining (AffectNet) did not beat the small CNN on its own either. Three different face architectures land at 52-57 %, with validation/test gaps up to 8 points. That points to **limits of this face data**: few actors, small low-resolution faces, subtle acted expressions (humans manage 70 %). Architecture is not the main limit.
+2. **Fusion now matches human raters** (75.7 % vs 76.5 %), and stays calibrated.
+3. **Combining the two face models** adds little accuracy (+0.1 fused) but improves confidence: 51 % of clips answered instead of 41 %, and calibration error 0.042 instead of 0.060.
+4. **Quantization:**
+   - DistilHuBERT int8 loses 0.3 points. Only the transformer layers are quantized, so the convolutional front-end stays fp32 (50.8 MB). Quantizing it too is a next step.
+   - Static int8 **broke** EfficientNet-B0: 48 % agreement with fp32, and slower on this CPU. This is a known sensitivity of its activation and squeeze-excitation blocks, so the face encoder ships in fp32. Quantization-aware training would be the fix.
+5. **The `conflict` signal is still not validated** (AUROC 0.51-0.55 against human voice/face disagreement). Better models did not change that.
+
+**Recommended configurations:**
+- **Lean:** DistilHuBERT int8 + mini-Xception int8. About 51 MB, 75.6 %.
+- **Full:** add HSEmotion fp32. About 67 MB, 75.7 %, with more clips answered confidently.
+
+The text model (DistilBERT, about 56 MB int8) comes on top of either.
+
+**Licences (for your notes):**
+- DistilHuBERT: Apache-2.0.
+- HSEmotion code: Apache-2.0. Its weights were trained on AffectNet, which is licensed for research only.
+- MobileNetV3 (timm): Apache-2.0.
+
 ## 5. Changes made because of this study
 
 | Change | Evidence |
@@ -190,6 +239,7 @@ The voice model's reading becomes available at the *end* of each sentence, as it
 | Window incongruence redefined as **P(opposite valence)** between modality leaders under their Dirichlet posteriors, recency-weighted, threshold 0.4 | The earlier V/A-distance rule counted neutral as "incompatible" (false-alarm rate 0.61 on the synthetic benchmark) |
 | Real-tuned ambiguity thresholds documented as the recommended setting (`results/real_cremad.json` → `thresholds.tuned_on_real_val`) | 90 % accuracy on answered clips; flagged clips 2.3x more often human-ambiguous |
 | `conflict` / `incongruent` marked **unvalidated** | AUROC 0.52 against human voice/face disagreement |
+| Voice upgraded to DistilHuBERT + head (69.4 %); fused system 75.7 % (human raters 76.5 %) | Section 4b |
 | Haar cascade cached per process | Was reloaded on every frame: real cost about 20-30 ms per frame, not 45 ms. The latency budget is corrected |
 | Prosody feature count corrected to 88 | Earlier docs said about 130 |
 

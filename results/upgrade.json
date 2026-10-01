@@ -160,5 +160,164 @@
     "epochs": 8,
     "frames_per_clip": 3,
     "test_frame_acc": 0.46721624303488285
+  },
+  "face_hse": {
+    "frames_used": 44613,
+    "zero_shot": {
+      "test_acc": 0.4616013071895425,
+      "test_macro_f1": 0.44874580874258824,
+      "per_class_recall": {
+        "anger": 0.0861244019138756,
+        "disgust": 0.42105263157894735,
+        "fear": 0.6172248803827751,
+        "joy": 0.6985645933014354,
+        "neutral": 0.5865921787709497,
+        "sadness": 0.37799043062200954
+      }
+    },
+    "head": {
+      "C": 0.03,
+      "val_clip_acc": 0.6099348534201955,
+      "test_acc": 0.5351307189542484,
+      "test_macro_f1": 0.5245882551270474,
+      "human_acc_same_clips": 0.701797385620915,
+      "temperature": 1.6096669792927494,
+      "frame_temperature": 2.219789030881855,
+      "calibration": {
+        "nll_before": 1.1873474591724285,
+        "nll_after": 1.1044083782157366,
+        "ece_before": 0.07783052856104128,
+        "ece_after": 0.04182929753156814
+      },
+      "per_class_recall": {
+        "anger": 0.5023923444976076,
+        "disgust": 0.5933014354066986,
+        "fear": 0.3492822966507177,
+        "joy": 0.9282296650717703,
+        "neutral": 0.3463687150837989,
+        "sadness": 0.46411483253588515
+      },
+      "confusion": [
+        [
+          105,
+          8,
+          14,
+          16,
+          32,
+          34
+        ],
+        [
+          27,
+          124,
+          17,
+          11,
+          3,
+          27
+        ],
+        [
+          32,
+          11,
+          73,
+          14,
+          10,
+          69
+        ],
+        [
+          3,
+          0,
+          5,
+          194,
+          5,
+          2
+        ],
+        [
+          30,
+          0,
+          13,
+          29,
+          62,
+          45
+        ],
+        [
+          21,
+          16,
+          22,
+          29,
+          24,
+          97
+        ]
+      ],
+      "encoder": "HSEmotion enet_b0_8_best_afew (EfficientNet-B0, AffectNet)",
+      "encoder_params": 3996789
+    }
+  },
+  "face_ensemble": {
+    "T": 1.8520059987931594,
+    "val": 0.6017915309446255,
+    "test": 0.5849673202614379
+  },
+  "fusion_comparison": {
+    "old prosody MLP + old CNN": {
+      "test_acc": 0.6838235294117647,
+      "val_acc": 0.6558177379983726,
+      "ece": 0.038982593625231154,
+      "answered": 0.37826797385620914,
+      "acc_answered": 0.9006479481641468,
+      "auroc_err": 0.7871489477307598,
+      "auroc_conflict": 0.5186732067408091
+    },
+    "old prosody MLP + ensemble": {
+      "test_acc": 0.701797385620915,
+      "val_acc": 0.7119609438567941,
+      "ece": 0.03604030436301153,
+      "answered": 0.41421568627450983,
+      "acc_answered": 0.903353057199211,
+      "auroc_err": 0.8091999298323952,
+      "auroc_conflict": 0.5514545189645962
+    },
+    "DistilHuBERT + old CNN": {
+      "test_acc": 0.755718954248366,
+      "val_acc": 0.7290480065093572,
+      "ece": 0.0601106992979247,
+      "answered": 0.41421568627450983,
+      "acc_answered": 0.9171597633136095,
+      "auroc_err": 0.7823610232305883,
+      "auroc_conflict": 0.5131044307383484
+    },
+    "DistilHuBERT + ensemble": {
+      "test_acc": 0.7573529411764706,
+      "val_acc": 0.7819365337672904,
+      "ece": 0.04220395372287475,
+      "answered": 0.5138888888888888,
+      "acc_answered": 0.9125596184419714,
+      "auroc_err": 0.8224623073598262,
+      "auroc_conflict": 0.5422163944333824
+    }
+  },
+  "voice_distilhubert_edge": {
+    "fp32": {
+      "test_acc": 0.6944444444444444,
+      "size_mb": 95.617507,
+      "ms_per_clip_4threads_p50": 52.09900150020985
+    },
+    "int8": {
+      "test_acc": 0.6911764705882353,
+      "size_mb": 50.825445,
+      "ms_per_clip_4threads_p50": 44.856548999860024
+    }
+  },
+  "face_hse_edge": {
+    "fp32": {
+      "test_frame_acc_1500": 0.5153333333333333,
+      "size_mb": 16.099688,
+      "ms_per_frame_1thread_p50": 13.668972000232316,
+      "agreement_with_fp32": 1.0
+    },
+    "int8": {
+      "test_frame_acc_1500": 0.41,
+      "size_mb": 4.728142,
+      "ms_per_frame_1thread_p50": 40.908251000018936,
+      "agreement_with_fp32": 0.47933333333333333
+    }
   }
 }

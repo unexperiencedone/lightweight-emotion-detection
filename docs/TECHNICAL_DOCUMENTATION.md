@@ -6,7 +6,7 @@ This document records **what** was built, **why** each decision was made, and **
 |---|---|
 | [TEMPORAL_DESIGN.md](TEMPORAL_DESIGN.md) | Block segmentation, instant emotion, window mood, behavioural patterns: research basis, maths, evaluation |
 | [LIVE_PIPELINE.md](LIVE_PIPELINE.md) | Running the end-to-end pipeline (demo / files / real time), input and output formats, compute budget |
-| [REAL_DATA_STUDY.md](REAL_DATA_STUDY.md) | Real human-labelled data (CREMA-D audio+video, MELD conversations): trained voice and face models vs human raters, fusion and ambiguity vs human judgement, temporal retuning, and what changed as a result |
+| [REAL_DATA_STUDY.md](REAL_DATA_STUDY.md) | Real human-labelled data (section 4b: pretrained-encoder upgrade, fused 75.7 % vs 76.5 % for humans) (CREMA-D audio+video, MELD conversations): trained voice and face models vs human raters, fusion and ambiguity vs human judgement, temporal retuning, and what changed as a result |
 | [RESULTS.md](RESULTS.md) | Every measured number and graph, generated from the result files by `python -m emotion_edge.report` |
 
 **Convention.** A number in this document is a measurement only if a result file is named next to it. Measurements on **random weights** (valid for size and latency) or **synthetic data** (valid for checking logic) are labelled as such every time.
@@ -42,8 +42,8 @@ This document records **what** was built, **why** each decision was made, and **
 | Quantized-model accuracy on real data | NOT MEASURED (depends on the row above) | |
 | Size, memory and latency of the full-size DistilBERT architecture (fp32, int8, pruned + int8) | **Measured** on random weights | `results/edge_text_arch.json` |
 | Edge scenarios: core pinning, contention, memory cap, queueing | Implemented and run | `emotion_edge/edge/bench.py` |
-| Voice-prosody track | **Trained on real speech** (CREMA-D, actor-independent): 54.0 % on 15 unseen actors vs 46.7 % for human voice-only raters; int8 55.2 % | `results/real_cremad.json` |
-| Face track | **Trained on real video** (CREMA-D frames, actor-independent): 56.9 % vs 70.2 % for human face-only raters; int8 57.3 %. FER2013 was unreachable | `results/real_cremad.json` |
+| Voice track | **Trained on real speech** (CREMA-D, actor-independent). The first version (prosody MLP) reached 54.0 %. **Upgraded:** a pretrained DistilHuBERT encoder + head reaches **69.4 %** (int8 69.1 %, 50.8 MB, 45 ms per clip), against 46.7 % for human voice-only raters | `results/upgrade.json` |
+| Face track | **Trained on real video** (CREMA-D frames). Small CNN 56.9 %; ImageNet MobileNetV3 52.3 %; AffectNet EfficientNet-B0 53.5 %; **ensemble of CNN + AffectNet model: 58.5 %** (human face-only raters: 70.2 %). Face data, not architecture, appears to be the limit | `results/upgrade.json` |
 | Late fusion with ambiguity typing | **Validated on real clips:** fused 68.4 % (+11.5 pts over best modality, ECE 0.039); answering 38 % of clips at 90 % accuracy with real-tuned thresholds. The **`conflict` signal is not validated** (AUROC 0.52 against human voice/face disagreement) | `results/real_cremad.json` |
 | Temporal layer (segmentation, instant filter, Dirichlet mood, behaviour) | Synthetic benchmark plus **real data**: on real CREMA-D sessions it cuts flicker 3x but does **not** raise instant accuracy; on MELD, inertia hurts text, so text now uses carry 0; the mood P(dominant) is calibrated on real labels (ECE 0.06-0.07) | `results/real_meld.json`, `results/real_cremad.json` |
 | Live pipeline (files / real time / demo) | Files mode tested end to end with real file decoding and tiny random ONNX models; real-time capture code present but **not tested** (no camera or microphone in the sandbox) | `tests/test_live_files.py` |
