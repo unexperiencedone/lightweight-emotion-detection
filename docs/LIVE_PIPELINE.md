@@ -52,8 +52,8 @@ Example output:
 ```
 [   30.0s] WINDOW  mood neutral  transition neutral->joy  P(dominant)=0.46  pattern=stable  conflict_share=0.00
 [   45.0s] WINDOW  mood joy      dominant  P(dominant)=0.88  pattern=stable  conflict_share=0.00
-[   60.0s] WINDOW  mood joy      conflicted  P(dominant)=0.58  pattern=volatile,escalating,incongruent  conflict_share=0.43
-[   80.0s] WINDOW  mood sadness  transition anger->sadness  P(dominant)=0.68  pattern=de-escalating,incongruent  conflict_share=0.47
+[   60.0s] WINDOW  mood joy      conflicted  P(dominant)=0.58  pattern=volatile,escalating,incongruent  conflict_share=0.28
+[   80.0s] WINDOW  mood sadness  transition anger->sadness  P(dominant)=0.68  pattern=de-escalating  conflict_share=0.23
 [  105.0s] WINDOW  mood fear     transition sadness->fear  P(dominant)=0.45  pattern=escalating  conflict_share=0.00
 ```
 
@@ -123,16 +123,16 @@ Every record is one JSON line. These examples are real records from the demo run
 ### 4.2 `instant`: every tick
 
 ```json
-{"type": "instant", "t": 55.0, "label": "anger", "state": "conflict", "p_top1": 0.659, "top2": ["anger", "joy"],
- "margin": 0.373, "entropy": 0.409, "conflict": 0.876,
+{"type": "instant", "t": 55.0, "label": "anger", "state": "conflict", "p_top1": 0.877, "top2": ["anger", "neutral"],
+ "margin": 0.828, "entropy": 0.256, "conflict": 0.602,
  "per_modality": {"speech": {"top": "neutral", "p_top": 0.301, "reliability": 0.163},
-                  "text":   {"top": "joy",     "p_top": 0.939, "reliability": 0.841},
-                  "face":   {"top": "anger",   "p_top": 0.921, "reliability": 0.792}},
- "explanation": "modalities disagree: speech->neutral; text->joy; face->anger",
- "posterior": {"anger": 0.6591, "disgust": 0.014, "fear": 0.0006, "...": "..."}}
+                  "face":   {"top": "anger",   "p_top": 0.921, "reliability": 0.792},
+                  "text":   {"top": "joy",     "p_top": 0.631, "reliability": 0.406}},
+ "explanation": "modalities disagree: speech->neutral; face->anger; text->joy",
+ "posterior": {"anger": 0.877, "...": "..."}}
 ```
 
-- `reliability` here is the filter's informativeness. A modality that has gone quiet trends toward 0. In this record, voice is nearly uninformative (0.16): its last segments were weak or a while ago, so it barely counts.
+- `reliability` here is the filter's informativeness. Text has carry 0, so its reading reflects the latest utterance only (0.41 here). A modality that has gone quiet trends toward 0. In this record, voice is nearly uninformative (0.16): its last segments were weak or a while ago, so it barely counts.
 - `state` is one of `confident`, `blend`, `ambiguous`, `conflict` or `uncertain`.
 
 ### 4.3 `window`: every hop
@@ -144,34 +144,34 @@ Every record is one JSON line. These examples are real records from the demo run
                     "ci90": {"anger": [0.103, 0.531], "...": []}},
            "text": {"...": "..."}, "speech": {"...": "..."}},
  "fused_mood": {"label": "joy", "state": "transition", "transition": ["joy", "anger"], "n_eff": 14.14,
-                "p_dominant": 0.413, "cross_modal_jsd": 0.075,
-                "modality_leaders": {"speech": "anger", "text": "joy", "face": "anger"}, "...": "..."},
- "behaviour": {"fused": {"valence_mean": 0.181, "arousal_mean": 0.557, "valence_mssd": 0.03,
-                         "valence_inertia": 0.921, "valence_trend_per_min": -3.286, "switch_per_min": 8.0,
-                         "dominant": "anger", "dominant_share": 0.492, "tags": ["volatile", "incongruent"]},
+                "p_dominant": 0.413, "cross_modal_jsd": 0.075, "p_incongruent": 0.391, "incongruent_pair": ["face", "text"],
+                "modality_leaders": {"speech": "anger", "face": "anger", "text": "joy"}, "...": "..."},
+ "behaviour": {"fused": {"valence_mean": 0.107, "arousal_mean": 0.541, "valence_mssd": 0.024,
+                         "valence_inertia": 0.941, "valence_trend_per_min": -3.596, "switch_per_min": 8.0,
+                         "dominant": "anger", "dominant_share": 0.475, "tags": ["volatile", "incongruent"]},
                "face": {"...": "..."}},
- "conflict_share": 0.574}
+ "conflict_share": 0.311}
 ```
 
-How to read this record: over the last 30 s the person moved from joy to anger. Text kept saying joy while face and voice said anger for more than half the window (`conflict_share` 0.57), so the window is tagged `incongruent`, the signature of masking or sarcasm.
+How to read this record: over the last 30 s the person moved from joy to anger. Text kept saying joy while face and voice said anger for about a third of the window (`conflict_share` 0.31, at least 0.3), so the window is tagged `incongruent`, the signature of masking or sarcasm. `p_incongruent` (0.39) gives the window-level probability that face and text lead with opposite-valence emotions. **Note:** these incongruence signals are not yet validated on real data (REAL_DATA_STUDY section 3).
 
 ---
 
 ## 5. Compute budget (one core)
 
-Measured on one pinned host core (x86). The neural networks use random weights here, which is valid for timing, not accuracy.
+Measured on one pinned host core (x86). The neural networks use random weights here, which is valid for timing, not accuracy. An earlier version of this table gave 45 ms for face detection; that figure included reloading the Haar cascade on every frame, a bug found and fixed during the real-data study.
 
 | Stage | Cost | Frequency | Load on one core |
 |---|---|---|---|
-| Face: Haar detection + crop (320x240) | ~45 ms | 4 fps | ~18 % |
-| Face: CNN int8 | ~0.3 ms | 4 fps | < 0.2 % |
-| Voice: prosody features (3 s segment) | ~37 ms | per segment (~every 3-5 s) | ~1 % |
+| Face: Haar detection + crop (320x240) | ~20-30 ms | 4 fps | ~8-12 % |
+| Face: CNN int8 | ~0.5 ms | 4 fps | < 0.3 % |
+| Voice: prosody features (3 s segment) | ~30 ms | per segment (~every 3-5 s) | ~1 % |
 | Voice: MLP int8 | < 0.1 ms | per segment | ~0 |
 | Text: DistilBERT int8, 32 tokens | ~15 ms | per utterance (~every 4-8 s) | < 0.5 % |
 | Temporal: observe (per block) | 0.09 ms | ~5 / s | ~0 |
 | Temporal: tick (fuse filters) | 0.22 ms | 2 / s | < 0.1 % |
 | Temporal: window report (Dirichlet sampling, CIs, behaviour) | 21 ms | every 5 s | ~0.4 % |
-| **Total** | | | **~20 % of one core** |
+| **Total** | | | **~10-14 % of one core** |
 
 Face detection dominates. If the budget is tight, the levers are, in order:
 1. Lower the face rate to 2 fps (the filter's dwell absorbs it).

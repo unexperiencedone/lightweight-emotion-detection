@@ -1,0 +1,707 @@
+{
+  "dataset": "CREMA-D",
+  "split": {
+    "train": {
+      "clips": 4989,
+      "actors": 61
+    },
+    "val": {
+      "clips": 1229,
+      "actors": 15
+    },
+    "test": {
+      "clips": 1224,
+      "actors": 15
+    }
+  },
+  "human_reference_all_clips": {
+    "voice": 0.45525396398817525,
+    "face": 0.6901370599301263,
+    "av": 0.7483203439935501
+  },
+  "speech": {
+    "val_acc": 0.580960130187144,
+    "temperature": 1.4228013119087315,
+    "cal_nll_before": 1.3424527645111084,
+    "cal_nll_after": 1.2731144428253174,
+    "cal_ece_before": 0.12166793575317905,
+    "cal_ece_after": 0.08081633456360528,
+    "test_acc_vs_intended": 0.5400326797385621,
+    "test_macro_f1": 0.5387115942575544,
+    "test_int8_acc_vs_intended": 0.5522875816993464,
+    "int8_agreement": 0.9060457516339869,
+    "test_acc_vs_human_majority": 0.36764705882352944,
+    "human_acc_vs_intended_same_clips": 0.4673202614379085,
+    "per_class_recall": {
+      "anger": 0.6172248803827751,
+      "disgust": 0.46411483253588515,
+      "fear": 0.3875598086124402,
+      "joy": 0.5645933014354066,
+      "neutral": 0.5251396648044693,
+      "sadness": 0.6794258373205742
+    },
+    "confusion": [
+      [
+        129,
+        27,
+        6,
+        32,
+        9,
+        6
+      ],
+      [
+        10,
+        97,
+        8,
+        14,
+        18,
+        62
+      ],
+      [
+        11,
+        11,
+        81,
+        30,
+        20,
+        56
+      ],
+      [
+        18,
+        24,
+        19,
+        118,
+        20,
+        10
+      ],
+      [
+        5,
+        30,
+        4,
+        21,
+        94,
+        25
+      ],
+      [
+        0,
+        18,
+        16,
+        8,
+        25,
+        142
+      ]
+    ],
+    "params": 28936,
+    "size_mb": 0.034522,
+    "restart_seed": 0
+  },
+  "face": {
+    "val_acc": 0.4872989979025868,
+    "temperature": 1.200660959742921,
+    "cal_nll_before": 1.313281991101426,
+    "cal_nll_after": 1.2976436404198257,
+    "cal_ece_before": 0.039246083616755655,
+    "cal_ece_after": 0.04368405947698611,
+    "test_acc_vs_intended": 0.5694444444444444,
+    "test_macro_f1": 0.5671491275577963,
+    "test_int8_acc_vs_intended": 0.5727124183006536,
+    "int8_agreement": 0.9861111111111112,
+    "test_acc_vs_human_majority": 0.553921568627451,
+    "human_acc_vs_intended_same_clips": 0.701797385620915,
+    "per_class_recall": {
+      "anger": 0.41148325358851673,
+      "disgust": 0.6602870813397129,
+      "fear": 0.3875598086124402,
+      "joy": 0.9090909090909091,
+      "neutral": 0.5195530726256983,
+      "sadness": 0.5215311004784688
+    },
+    "confusion": [
+      [
+        86,
+        7,
+        25,
+        18,
+        37,
+        36
+      ],
+      [
+        28,
+        138,
+        9,
+        2,
+        5,
+        27
+      ],
+      [
+        31,
+        5,
+        81,
+        8,
+        30,
+        54
+      ],
+      [
+        14,
+        0,
+        3,
+        190,
+        2,
+        0
+      ],
+      [
+        14,
+        2,
+        18,
+        11,
+        93,
+        41
+      ],
+      [
+        17,
+        14,
+        19,
+        6,
+        44,
+        109
+      ]
+    ],
+    "params": 66407,
+    "size_mb": 0.100112,
+    "frame_temperature": 1.567978650732005,
+    "frame_calibration": {
+      "nll_before": 1.5362651348114014,
+      "nll_after": 1.4394627809524536,
+      "ece_before": 0.13030842722161412,
+      "ece_after": 0.014203569172405275
+    },
+    "test_frame_acc": 0.4927868101671628,
+    "clips_without_face": 1,
+    "frames_per_clip_mean": 10.595538833646868
+  },
+  "fusion_clip_level": {
+    "val": {
+      "n": 1229,
+      "fused_acc_vs_intended": 0.6558177379983726,
+      "fused_macro_f1": 0.6459777966801333,
+      "fused_acc_vs_human_av_majority": 0.5923515052888527,
+      "human_av_acc_vs_intended": 0.7436940602115542,
+      "fused_ece_vs_intended": 0.027834622636261554,
+      "brier_vs_human_av_votes": 0.29433986107763443,
+      "brier_onehot_intended_vs_human_av_votes": 0.37679824092548775,
+      "human_ambiguous_rate": 0.2628152969894223,
+      "human_incongruent_rate": 0.13913751017087062,
+      "auroc_1_minus_p_top1__human_ambiguous": 0.6086700975266369,
+      "auroc_entropy__human_ambiguous": 0.6116430538754366,
+      "auroc_conflict__human_incongruent": 0.5062901424954952,
+      "auroc_1_minus_p_top1__fused_wrong": 0.7898679525309587
+    },
+    "test": {
+      "n": 1224,
+      "fused_acc_vs_intended": 0.6838235294117647,
+      "fused_macro_f1": 0.6825272297487879,
+      "fused_acc_vs_human_av_majority": 0.6217320261437909,
+      "human_av_acc_vs_intended": 0.7647058823529411,
+      "fused_ece_vs_intended": 0.038982593625231154,
+      "brier_vs_human_av_votes": 0.25911670460435854,
+      "brier_onehot_intended_vs_human_av_votes": 0.36057215076665977,
+      "human_ambiguous_rate": 0.27532679738562094,
+      "human_incongruent_rate": 0.14460784313725492,
+      "auroc_1_minus_p_top1__human_ambiguous": 0.6435723389948449,
+      "auroc_entropy__human_ambiguous": 0.6283407879726615,
+      "auroc_conflict__human_incongruent": 0.5186732067408091,
+      "auroc_1_minus_p_top1__fused_wrong": 0.7871489477307598
+    }
+  },
+  "thresholds": {
+    "tuned_on_real_val": {
+      "conf_p": 0.7,
+      "margin": 0.1,
+      "entropy": 0.6,
+      "conflict_jsd": 0.5,
+      "compat_dist": 0.75
+    },
+    "val_flag_f1": 0.7018587360594796,
+    "from_simulation": {
+      "conf_p": 0.65,
+      "margin": 0.1,
+      "entropy": 0.7,
+      "conflict_jsd": 0.3,
+      "compat_dist": 0.75
+    }
+  },
+  "selective_test": {
+    "real_tuned": {
+      "coverage_confident": 0.37826797385620914,
+      "acc_confident": 0.9006479481641468,
+      "acc_flagged": 0.5519053876478318,
+      "acc_all": 0.6838235294117647,
+      "human_ambiguous_rate_confident": 0.1511879049676026,
+      "human_ambiguous_rate_flagged": 0.3508541392904074,
+      "state_share": {
+        "ambiguous": 0.008986928104575163,
+        "blend": 0.007352941176470588,
+        "confident": 0.37826797385620914,
+        "conflict": 0.03676470588235294,
+        "uncertain": 0.5686274509803921
+      }
+    },
+    "simulation_tuned": {
+      "coverage_confident": 0.3668300653594771,
+      "acc_confident": 0.8864142538975501,
+      "acc_flagged": 0.5664516129032258,
+      "acc_all": 0.6838235294117647,
+      "human_ambiguous_rate_confident": 0.18262806236080179,
+      "human_ambiguous_rate_flagged": 0.32903225806451614,
+      "state_share": {
+        "ambiguous": 0.03022875816993464,
+        "blend": 0.008986928104575163,
+        "confident": 0.3668300653594771,
+        "conflict": 0.17647058823529413,
+        "uncertain": 0.41748366013071897
+      }
+    },
+    "default": {
+      "coverage_confident": 0.5187908496732027,
+      "acc_confident": 0.84251968503937,
+      "acc_flagged": 0.5127334465195246,
+      "acc_all": 0.6838235294117647,
+      "human_ambiguous_rate_confident": 0.2141732283464567,
+      "human_ambiguous_rate_flagged": 0.34125636672325976,
+      "state_share": {
+        "ambiguous": 0.1503267973856209,
+        "blend": 0.032679738562091505,
+        "confident": 0.5187908496732027,
+        "conflict": 0.11437908496732026,
+        "uncertain": 0.18382352941176472
+      }
+    }
+  },
+  "temporal": {
+    "sessions": {
+      "val": 15,
+      "test": 15,
+      "mean_duration_s": 270.82142174305216
+    },
+    "val_sweep": [
+      {
+        "face_dwell": 1.0,
+        "speech_dwell": 2.0,
+        "face_tau_c": 0.5,
+        "instant_acc": 0.54257041113629,
+        "flicker_per_min": 14.696281460732244,
+        "mood_acc": 0.6390977443609023,
+        "mood_p_dominant_ece": 0.07016541353383463
+      },
+      {
+        "face_dwell": 1.0,
+        "speech_dwell": 2.0,
+        "face_tau_c": 1.0,
+        "instant_acc": 0.54257041113629,
+        "flicker_per_min": 14.696281460732244,
+        "mood_acc": 0.6466165413533834,
+        "mood_p_dominant_ece": 0.08728571428571433
+      },
+      {
+        "face_dwell": 1.0,
+        "speech_dwell": 6.0,
+        "face_tau_c": 0.5,
+        "instant_acc": 0.5422466817740369,
+        "flicker_per_min": 16.313653220984325,
+        "mood_acc": 0.6390977443609023,
+        "mood_p_dominant_ece": 0.07016541353383463
+      },
+      {
+        "face_dwell": 1.0,
+        "speech_dwell": 6.0,
+        "face_tau_c": 1.0,
+        "instant_acc": 0.5422466817740369,
+        "flicker_per_min": 16.313653220984325,
+        "mood_acc": 0.6466165413533834,
+        "mood_p_dominant_ece": 0.08728571428571433
+      },
+      {
+        "face_dwell": 1.0,
+        "speech_dwell": 10.0,
+        "face_tau_c": 0.5,
+        "instant_acc": 0.5380382000647459,
+        "flicker_per_min": 16.77973528735918,
+        "mood_acc": 0.6390977443609023,
+        "mood_p_dominant_ece": 0.07016541353383463
+      },
+      {
+        "face_dwell": 1.0,
+        "speech_dwell": 10.0,
+        "face_tau_c": 1.0,
+        "instant_acc": 0.5380382000647459,
+        "flicker_per_min": 16.77973528735918,
+        "mood_acc": 0.6466165413533834,
+        "mood_p_dominant_ece": 0.08728571428571433
+      },
+      {
+        "face_dwell": 2.0,
+        "speech_dwell": 2.0,
+        "face_tau_c": 0.5,
+        "instant_acc": 0.5386856587892522,
+        "flicker_per_min": 11.896358002668162,
+        "mood_acc": 0.6390977443609023,
+        "mood_p_dominant_ece": 0.07016541353383463
+      },
+      {
+        "face_dwell": 2.0,
+        "speech_dwell": 2.0,
+        "face_tau_c": 1.0,
+        "instant_acc": 0.5386856587892522,
+        "flicker_per_min": 11.896358002668162,
+        "mood_acc": 0.6466165413533834,
+        "mood_p_dominant_ece": 0.08728571428571433
+      },
+      {
+        "face_dwell": 2.0,
+        "speech_dwell": 6.0,
+        "face_tau_c": 0.5,
+        "instant_acc": 0.5424085464551635,
+        "flicker_per_min": 12.401192029389279,
+        "mood_acc": 0.6390977443609023,
+        "mood_p_dominant_ece": 0.07016541353383463
+      },
+      {
+        "face_dwell": 2.0,
+        "speech_dwell": 6.0,
+        "face_tau_c": 1.0,
+        "instant_acc": 0.5424085464551635,
+        "flicker_per_min": 12.401192029389279,
+        "mood_acc": 0.6466165413533834,
+        "mood_p_dominant_ece": 0.08728571428571433
+      },
+      {
+        "face_dwell": 2.0,
+        "speech_dwell": 10.0,
+        "face_tau_c": 0.5,
+        "instant_acc": 0.538361929426999,
+        "flicker_per_min": 13.45313921114703,
+        "mood_acc": 0.6390977443609023,
+        "mood_p_dominant_ece": 0.07016541353383463
+      },
+      {
+        "face_dwell": 2.0,
+        "speech_dwell": 10.0,
+        "face_tau_c": 1.0,
+        "instant_acc": 0.538361929426999,
+        "flicker_per_min": 13.45313921114703,
+        "mood_acc": 0.6466165413533834,
+        "mood_p_dominant_ece": 0.08728571428571433
+      },
+      {
+        "face_dwell": 3.0,
+        "speech_dwell": 2.0,
+        "face_tau_c": 0.5,
+        "instant_acc": 0.5390093881515053,
+        "flicker_per_min": 10.903468444387789,
+        "mood_acc": 0.6390977443609023,
+        "mood_p_dominant_ece": 0.07016541353383463
+      },
+      {
+        "face_dwell": 3.0,
+        "speech_dwell": 2.0,
+        "face_tau_c": 1.0,
+        "instant_acc": 0.5390093881515053,
+        "flicker_per_min": 10.903468444387789,
+        "mood_acc": 0.6466165413533834,
+        "mood_p_dominant_ece": 0.08728571428571433
+      },
+      {
+        "face_dwell": 3.0,
+        "speech_dwell": 6.0,
+        "face_tau_c": 0.5,
+        "instant_acc": 0.5417610877306571,
+        "flicker_per_min": 11.032498091295047,
+        "mood_acc": 0.6390977443609023,
+        "mood_p_dominant_ece": 0.07016541353383463
+      },
+      {
+        "face_dwell": 3.0,
+        "speech_dwell": 6.0,
+        "face_tau_c": 1.0,
+        "instant_acc": 0.5417610877306571,
+        "flicker_per_min": 11.032498091295047,
+        "mood_acc": 0.6466165413533834,
+        "mood_p_dominant_ece": 0.08728571428571433
+      },
+      {
+        "face_dwell": 3.0,
+        "speech_dwell": 10.0,
+        "face_tau_c": 0.5,
+        "instant_acc": 0.5373907413402396,
+        "flicker_per_min": 11.848099288027933,
+        "mood_acc": 0.6390977443609023,
+        "mood_p_dominant_ece": 0.07016541353383463
+      },
+      {
+        "face_dwell": 3.0,
+        "speech_dwell": 10.0,
+        "face_tau_c": 1.0,
+        "instant_acc": 0.5373907413402396,
+        "flicker_per_min": 11.848099288027933,
+        "mood_acc": 0.6466165413533834,
+        "mood_p_dominant_ece": 0.08728571428571433
+      },
+      {
+        "face_dwell": 5.0,
+        "speech_dwell": 2.0,
+        "face_tau_c": 0.5,
+        "instant_acc": 0.5354483651667207,
+        "flicker_per_min": 9.479474304255627,
+        "mood_acc": 0.6390977443609023,
+        "mood_p_dominant_ece": 0.07016541353383463
+      },
+      {
+        "face_dwell": 5.0,
+        "speech_dwell": 2.0,
+        "face_tau_c": 1.0,
+        "instant_acc": 0.5354483651667207,
+        "flicker_per_min": 9.479474304255627,
+        "mood_acc": 0.6466165413533834,
+        "mood_p_dominant_ece": 0.08728571428571433
+      },
+      {
+        "face_dwell": 5.0,
+        "speech_dwell": 6.0,
+        "face_tau_c": 0.5,
+        "instant_acc": 0.5375526060213661,
+        "flicker_per_min": 9.932308987236015,
+        "mood_acc": 0.6390977443609023,
+        "mood_p_dominant_ece": 0.07016541353383463
+      },
+      {
+        "face_dwell": 5.0,
+        "speech_dwell": 6.0,
+        "face_tau_c": 1.0,
+        "instant_acc": 0.5375526060213661,
+        "flicker_per_min": 9.932308987236015,
+        "mood_acc": 0.6466165413533834,
+        "mood_p_dominant_ece": 0.08728571428571433
+      },
+      {
+        "face_dwell": 5.0,
+        "speech_dwell": 10.0,
+        "face_tau_c": 0.5,
+        "instant_acc": 0.5349627711233409,
+        "flicker_per_min": 10.205716496872729,
+        "mood_acc": 0.6390977443609023,
+        "mood_p_dominant_ece": 0.07016541353383463
+      },
+      {
+        "face_dwell": 5.0,
+        "speech_dwell": 10.0,
+        "face_tau_c": 1.0,
+        "instant_acc": 0.5349627711233409,
+        "flicker_per_min": 10.205716496872729,
+        "mood_acc": 0.6466165413533834,
+        "mood_p_dominant_ece": 0.08728571428571433
+      },
+      {
+        "face_dwell": 8.0,
+        "speech_dwell": 2.0,
+        "face_tau_c": 0.5,
+        "instant_acc": 0.531078018776303,
+        "flicker_per_min": 8.898922277597821,
+        "mood_acc": 0.6390977443609023,
+        "mood_p_dominant_ece": 0.07016541353383463
+      },
+      {
+        "face_dwell": 8.0,
+        "speech_dwell": 2.0,
+        "face_tau_c": 1.0,
+        "instant_acc": 0.531078018776303,
+        "flicker_per_min": 8.898922277597821,
+        "mood_acc": 0.6466165413533834,
+        "mood_p_dominant_ece": 0.08728571428571433
+      },
+      {
+        "face_dwell": 8.0,
+        "speech_dwell": 6.0,
+        "face_tau_c": 0.5,
+        "instant_acc": 0.5346390417610878,
+        "flicker_per_min": 8.716886742902727,
+        "mood_acc": 0.6390977443609023,
+        "mood_p_dominant_ece": 0.07016541353383463
+      },
+      {
+        "face_dwell": 8.0,
+        "speech_dwell": 6.0,
+        "face_tau_c": 1.0,
+        "instant_acc": 0.5346390417610878,
+        "flicker_per_min": 8.716886742902727,
+        "mood_acc": 0.6466165413533834,
+        "mood_p_dominant_ece": 0.08728571428571433
+      },
+      {
+        "face_dwell": 8.0,
+        "speech_dwell": 10.0,
+        "face_tau_c": 0.5,
+        "instant_acc": 0.5331822596309486,
+        "flicker_per_min": 9.058800077382434,
+        "mood_acc": 0.6390977443609023,
+        "mood_p_dominant_ece": 0.07016541353383463
+      },
+      {
+        "face_dwell": 8.0,
+        "speech_dwell": 10.0,
+        "face_tau_c": 1.0,
+        "instant_acc": 0.5331822596309486,
+        "flicker_per_min": 9.058800077382434,
+        "mood_acc": 0.6466165413533834,
+        "mood_p_dominant_ece": 0.08728571428571433
+      }
+    ],
+    "chosen_on_val": {
+      "face": {
+        "dwell_s": 3.0,
+        "tau_c": 0.5,
+        "base_weight": 1.0
+      },
+      "speech": {
+        "dwell_s": 2.0,
+        "tau_c": 2.0,
+        "base_weight": 1.0
+      },
+      "text": {
+        "dwell_s": 10.0,
+        "carry": 0.0,
+        "tau_c": 1.0,
+        "base_weight": 1.0
+      }
+    },
+    "val_window_sweep": {
+      "10.0": {
+        "instant_acc": 0.5390093881515053,
+        "flicker_per_min": 10.903468444387789,
+        "latency_s": 1.07383534454112,
+        "mood_acc": 0.6210720887245841,
+        "n_mood_windows": 541,
+        "mood_p_dominant_ece": 0.07425323475046212
+      },
+      "20.0": {
+        "instant_acc": 0.5390093881515053,
+        "flicker_per_min": 10.903468444387789,
+        "latency_s": 1.07383534454112,
+        "mood_acc": 0.6390977443609023,
+        "n_mood_windows": 266,
+        "mood_p_dominant_ece": 0.07016541353383463
+      },
+      "30.0": {
+        "instant_acc": 0.5390093881515053,
+        "flicker_per_min": 10.903468444387789,
+        "latency_s": 1.07383534454112,
+        "mood_acc": 0.550561797752809,
+        "n_mood_windows": 89,
+        "mood_p_dominant_ece": 0.13394382022471907
+      }
+    },
+    "test_default_params": {
+      "instant_acc": 0.5483256625932391,
+      "flicker_per_min": 11.132243631784139,
+      "latency_s": 1.162416146927427,
+      "mood_acc": 0.6341463414634146,
+      "n_mood_windows": 287,
+      "mood_p_dominant_ece": 0.07448780487804879,
+      "mood_reliability": [
+        {
+          "bin": [
+            0.0,
+            0.2
+          ],
+          "n": 1,
+          "mean_p": 0.199,
+          "acc": 0.0
+        },
+        {
+          "bin": [
+            0.2,
+            0.4
+          ],
+          "n": 76,
+          "mean_p": 0.31763157894736843,
+          "acc": 0.3815789473684211
+        },
+        {
+          "bin": [
+            0.4,
+            0.6
+          ],
+          "n": 98,
+          "mean_p": 0.5029081632653061,
+          "acc": 0.5918367346938775
+        },
+        {
+          "bin": [
+            0.6,
+            0.8
+          ],
+          "n": 59,
+          "mean_p": 0.6915254237288135,
+          "acc": 0.7457627118644068
+        },
+        {
+          "bin": [
+            0.8,
+            1.0
+          ],
+          "n": 53,
+          "mean_p": 0.8791698113207548,
+          "acc": 0.9622641509433962
+        }
+      ]
+    },
+    "test_tuned_params": {
+      "instant_acc": 0.541342644024758,
+      "flicker_per_min": 10.729071805668827,
+      "latency_s": 1.0593528996085126,
+      "mood_acc": 0.6027874564459931,
+      "n_mood_windows": 287,
+      "mood_p_dominant_ece": 0.06217073170731701,
+      "mood_reliability": [
+        {
+          "bin": [
+            0.2,
+            0.4
+          ],
+          "n": 44,
+          "mean_p": 0.33695454545454545,
+          "acc": 0.3409090909090909
+        },
+        {
+          "bin": [
+            0.4,
+            0.6
+          ],
+          "n": 70,
+          "mean_p": 0.49680000000000013,
+          "acc": 0.44285714285714284
+        },
+        {
+          "bin": [
+            0.6,
+            0.8
+          ],
+          "n": 80,
+          "mean_p": 0.684375,
+          "acc": 0.6125
+        },
+        {
+          "bin": [
+            0.8,
+            1.0
+          ],
+          "n": 93,
+          "mean_p": 0.9262688172043009,
+          "acc": 0.8387096774193549
+        }
+      ]
+    },
+    "test_static_baseline": {
+      "instant_acc": 0.5446485117162762,
+      "flicker_per_min": 34.71319136846712
+    }
+  }
+}

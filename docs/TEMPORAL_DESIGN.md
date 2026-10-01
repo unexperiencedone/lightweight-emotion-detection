@@ -179,7 +179,7 @@ Why energy VAD and not a neural VAD: it costs effectively nothing on one core an
 
 - Camera frames are down-sampled to **4 fps** on a fixed time grid (drift-free; also fixed during testing).
 - Each sampled frame is one block: Haar detection, crop, CNN.
-- Detection costs about 45 ms on one core, so 4 fps uses about 18 % of a core. Expressions last 0.5 to 4 s, so 4 fps still samples each one at least twice.
+- Detection costs about 20-30 ms on one core, so 4 fps uses about 8-12 % of a core. Expressions last 0.5 to 4 s, so 4 fps still samples each one at least twice.
 - Frames without a detected face produce **no** observation. The face modality is then simply absent and its filter decays (section 6.3).
 - Face blocks are not grouped into larger blocks. The temporal models below handle the correlation between consecutive frames explicitly.
 
@@ -213,6 +213,17 @@ s(Δt)  = exp(-Δt / dwell)                    # stickiness decays with elapsed 
 b_t|t-Δt = s(Δt) · b_{t-Δt} + (1 - s(Δt)) · π
 ```
 
+**Persistence versus inertia (added after the real-data study).** The update below first mixes the predicted belief with the base rate by a factor *carry* in [0, 1]:
+
+```
+prior = carry · b_t|t-Δt + (1 - carry) · π
+```
+
+- *dwell* controls **persistence**: how long a reading stays relevant when nothing new arrives.
+- *carry* controls **inertia**: how much the accumulated state biases the interpretation of a *new* observation.
+
+Face frames are strongly autocorrelated, so face uses carry 1, the standard HMM. In real conversations (MELD) a speaker's next utterance keeps the same emotion only 44 % of the time, and any carry > 0 lowered per-utterance F1, so text uses **carry 0 with dwell 10 s**: every utterance is judged on its own and then stays available for cross-modal comparison. See [REAL_DATA_STUDY](REAL_DATA_STUDY.md) section 4.1.
+
 **Update** (when a block arrives with calibrated canonical distribution *q* and reliability *r*):
 
 ```
@@ -226,7 +237,7 @@ b_t ∝ b_t|t-Δt · likelihood
 ### 6.2 Why this model
 
 - **Time-aware.** The transition depends on the actual gap Δt. This matters because the three modalities arrive irregularly: face every 0.25 s, voice every few seconds, text whenever someone speaks.
-- **Outlier-robust.** One wrong frame cannot flip a well-supported state (unit-tested). A real change still wins after a few consistent observations: median transition latency is 1.5 s on the synthetic session.
+- **Outlier-robust.** One wrong frame cannot flip a well-supported state (unit-tested). A real change still wins after a few consistent observations: median transition latency is 1.4 s on the synthetic session and about 1.1 s on real CREMA-D sessions.
 - **One parameter per modality** (dwell), interpretable as "how long a reading stays relevant".
 - **Constant cost:** an 8-element vector update per block (microseconds).
 
@@ -347,7 +358,9 @@ The fused mood carries two disagreement signals:
 - `cross_modal_jsd`: the largest pairwise Jensen-Shannon divergence between modality mood means, weighted by evidence.
 - `conflict_share`: the fraction of instant ticks in the window that were `conflict`.
 
-Either one above its threshold adds the `incongruent` tag. That separates a **sustained** incongruence (masking, sarcasm) from a momentary glitch.
+A third signal is added as `p_incongruent`: under each modality's Dirichlet posterior (recency-weighted, half-life = window/4), the probability that two modalities' leading emotions have **opposite valence** (each |v| >= 0.3), for example words saying joy while the face says anger. Neutral never counts, because one channel being less expressive is not incongruence. An earlier rule based on valence/arousal distance treated neutral as "incompatible" and produced a 0.61 false-alarm rate on the synthetic benchmark, so it was replaced.
+
+The `incongruent` tag is added when `conflict_share` >= 0.3 or `p_incongruent` >= 0.4. That separates a **sustained** incongruence (masking, sarcasm) from a momentary glitch. **Caveat:** on real CREMA-D clips the instant `conflict` signal did not predict human voice/face disagreement (AUROC 0.52), so both signals are currently **unvalidated** ([REAL_DATA_STUDY](REAL_DATA_STUDY.md) section 3).
 
 ---
 
@@ -355,7 +368,8 @@ Either one above its threshold adds the `incongruent` tag. That separates a **su
 
 | Parameter | Text | Voice | Face | Rationale |
 |---|---|---|---|---|
-| dwell (filter) | 10 s | 6 s | 3 s | Matches how often each modality refreshes. A text reading must survive the gap to the next utterance (about 4 to 8 s); face refreshes 4 times per second. Shorter dwell means faster reaction and more noise |
+| dwell (persistence) | 10 s | 6 s | 3 s | Matches how often each modality refreshes. A text reading must survive the gap to the next utterance (about 4 to 8 s); face refreshes 4 times per second. On real CREMA-D sessions, accuracy was flat across face dwell 1-8 s and voice dwell 2-10 s, so the defaults are kept |
+| carry (inertia) | **0** | 1 | 1 | Text: real conversations show little utterance-to-utterance inertia (MELD); any carry > 0 hurt. Face and voice: consecutive observations are autocorrelated |
 | τ_c (independence) | 1 (one block = one unit) | 2 s | 1 s | Face expressions change on second scales (Ekman, 1992); a voice segment of up to 2 s counts as at most one unit |
 | window | 30 s | | | Long enough to collect about 10 to 20 informative units across modalities, short enough to follow a conversation. Use 60 to 300 s for slower "mood" questions |
 | hop | 5 s | | | Updates the mood often enough to drive a UI without recomputing every tick |
@@ -386,22 +400,32 @@ Model outputs are simulated per block with the same noise model as the fusion st
 
 | Metric | Static fusion | Temporal layer |
 |---|---|---|
-| Instant accuracy, clean phases | 0.760 ± 0.026 | **0.956 ± 0.007** |
-| Label switches per minute (truth ≈ 0) | 43.5 ± 5.3 | **1.9 ± 0.5** |
-| Transition latency | 3.6 ± 1.5 s | **1.5 ± 0.3 s** |
-| Masking phase flagged as `conflict` | 0.23 ± 0.08 | **0.70 ± 0.19** |
-| `conflict` false alarms, clean phases | 0.05 ± 0.03 | 0.05 ± 0.03 |
-| Blend phase labelled joy or love | 0.69 ± 0.04 | **0.89 ± 0.05** |
+| Instant accuracy, clean phases | 0.760 ± 0.026 | **0.959 ± 0.010** |
+| Label switches per minute (truth ≈ 0) | 43.5 ± 5.3 | **1.7 ± 0.0** |
+| Transition latency | 3.6 ± 1.5 s | **1.4 ± 0.3 s** |
+| Masking phase flagged as `conflict` | 0.23 ± 0.08 | 0.25 ± 0.13 (0.70 before text carry was set to 0) |
+| `conflict` false alarms, clean phases | 0.05 ± 0.03 | **0.02 ± 0.01** |
+| Blend phase labelled joy or love | 0.69 ± 0.04 | **0.90 ± 0.04** |
 
 Window-level results:
 - **Mood accuracy:** 1.00 on windows with a clear majority emotion. A naive majority vote of raw blocks also scores 1.00 there, so on easy windows the Dirichlet model **does not beat** a vote.
 - **Where the Dirichlet adds value:** it reports *how sure* it is (P(dominant), credible intervals), detects **transitions** (correct target in 0.80 of windows that straddle a boundary), and separates mixed from conflicted.
-- **Escalation:** the `escalating` tag fires in 0.65 of escalation windows, with 0.00 false alarms in the first 45 s.
+- **Escalation:** the `escalating` tag fires in 0.73 of escalation windows, with 0.00 false alarms in the first 45 s.
+- **Window incongruence:** the masking phase is tagged `incongruent` in 0.25 of its windows, with 0.00 false alarms. That is down from 0.56 before text carry was set to 0 on the strength of the MELD evidence. Masking detection is an open problem (REAL_DATA_STUDY section 3).
 - **A scoring artefact found and fixed:** windows split 50/50 between two phases have no single correct mood, and the model correctly reported them as `transition`. They are now scored separately instead of counted as errors.
 
 ![Timeline](figures/live_timeline.png)
 
 ---
+
+### 11.1 Real data
+
+The synthetic results above test the logic. On **real** data ([REAL_DATA_STUDY](REAL_DATA_STUDY.md) section 4):
+- **CREMA-D sessions assembled from real clips:** the temporal layer cuts flicker 3x (34.7 → 11.1 switches per minute) but leaves instant accuracy unchanged (0.545 → 0.548).
+- **MELD conversations:** text inertia hurts, so text now uses carry 0.
+- **On both datasets the mood's P(dominant) is reasonably calibrated** (ECE 0.06-0.07). It is the most robust output of this layer.
+
+![Real temporal](figures/real_temporal.png)
 
 ## 12. Alternatives considered
 

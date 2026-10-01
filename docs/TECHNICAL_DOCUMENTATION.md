@@ -6,6 +6,7 @@ This document records **what** was built, **why** each decision was made, and **
 |---|---|
 | [TEMPORAL_DESIGN.md](TEMPORAL_DESIGN.md) | Block segmentation, instant emotion, window mood, behavioural patterns: research basis, maths, evaluation |
 | [LIVE_PIPELINE.md](LIVE_PIPELINE.md) | Running the end-to-end pipeline (demo / files / real time), input and output formats, compute budget |
+| [REAL_DATA_STUDY.md](REAL_DATA_STUDY.md) | Real human-labelled data (CREMA-D audio+video, MELD conversations): trained voice and face models vs human raters, fusion and ambiguity vs human judgement, temporal retuning, and what changed as a result |
 | [RESULTS.md](RESULTS.md) | Every measured number and graph, generated from the result files by `python -m emotion_edge.report` |
 
 **Convention.** A number in this document is a measurement only if a result file is named next to it. Measurements on **random weights** (valid for size and latency) or **synthetic data** (valid for checking logic) are labelled as such every time.
@@ -41,12 +42,12 @@ This document records **what** was built, **why** each decision was made, and **
 | Quantized-model accuracy on real data | NOT MEASURED (depends on the row above) | |
 | Size, memory and latency of the full-size DistilBERT architecture (fp32, int8, pruned + int8) | **Measured** on random weights | `results/edge_text_arch.json` |
 | Edge scenarios: core pinning, contention, memory cap, queueing | Implemented and run | `emotion_edge/edge/bench.py` |
-| Voice-prosody track | Code complete; checked on synthetic signals of known pitch and tempo; **not trained on real speech** | `tests/test_speech_vision.py` |
-| Face track | Code complete; checked on synthetic images; **not trained on real faces** | `tests/test_speech_vision.py` |
-| Late fusion with ambiguity typing | Implemented; unit-tested; validated on **simulated** modality outputs | `tests/test_fusion.py`, `results/fusion_sim.json` |
-| Temporal layer (segmentation, instant filter, Dirichlet mood, behaviour) | Implemented; unit-tested; evaluated on a **synthetic scripted session** (10 seeds) | `tests/test_temporal.py`, `results/temporal_eval.json` |
+| Voice-prosody track | **Trained on real speech** (CREMA-D, actor-independent): 54.0 % on 15 unseen actors vs 46.7 % for human voice-only raters; int8 55.2 % | `results/real_cremad.json` |
+| Face track | **Trained on real video** (CREMA-D frames, actor-independent): 56.9 % vs 70.2 % for human face-only raters; int8 57.3 %. FER2013 was unreachable | `results/real_cremad.json` |
+| Late fusion with ambiguity typing | **Validated on real clips:** fused 68.4 % (+11.5 pts over best modality, ECE 0.039); answering 38 % of clips at 90 % accuracy with real-tuned thresholds. The **`conflict` signal is not validated** (AUROC 0.52 against human voice/face disagreement) | `results/real_cremad.json` |
+| Temporal layer (segmentation, instant filter, Dirichlet mood, behaviour) | Synthetic benchmark plus **real data**: on real CREMA-D sessions it cuts flicker 3x but does **not** raise instant accuracy; on MELD, inertia hurts text, so text now uses carry 0; the mood P(dominant) is calibrated on real labels (ECE 0.06-0.07) | `results/real_meld.json`, `results/real_cremad.json` |
 | Live pipeline (files / real time / demo) | Files mode tested end to end with real file decoding and tiny random ONNX models; real-time capture code present but **not tested** (no camera or microphone in the sandbox) | `tests/test_live_files.py` |
-| Test suite | 27 tests passing | `make test` |
+| Test suite | 29 tests passing | `make test` |
 
 ---
 
@@ -206,7 +207,7 @@ What the results show:
 
 ![Latency budget](figures/latency_budget.png)
 
-The neural networks are **not** the bottleneck. Face detection (about 45 ms per frame) and prosody feature extraction (about 37 ms per 3 s segment) dominate, against under 0.5 ms for the speech and face networks. At the default rates the whole pipeline uses about 20 % of one core (LIVE_PIPELINE section 5).
+The neural networks are **not** the bottleneck. Face detection (about 20-30 ms per frame) and prosody feature extraction (about 30 ms per 3 s segment) dominate, against under 0.6 ms for the speech and face networks. At the default rates the whole pipeline uses about 13 % of one core (LIVE_PIPELINE section 5). An earlier figure of 45 ms per frame included reloading the Haar cascade on every call, a bug found during the real-data study and fixed.
 
 ---
 
@@ -235,7 +236,7 @@ Why not wav2vec2 or HuBERT: 95 M+ parameters would exceed the whole text model's
 | Export | ONNX + **static** int8 (QDQ, per-channel, 200 calibration images), 0.10 MB | Convolutions need static quantization to benefit |
 | Verified | Train → export → int8 round trip; int8 agrees with the torch model on > 80 % of samples (tiny synthetic task) | |
 
-Expectation: small FER2013 CNNs are usually reported in the mid-60s to low-70s percent. Expression is not inner state (Barrett et al., 2019), so fusion treats face as one noisy voice among three.
+**Real result (CREMA-D video, 15 unseen actors):** 56.9 % clip accuracy against 70.2 % for human face-only raters. Joy is recognised well (recall 0.91); anger and fear poorly (0.41 and 0.39). The face model is the main accuracy bottleneck ([REAL_DATA_STUDY](REAL_DATA_STUDY.md) section 1). Expression is not inner state (Barrett et al., 2019), so fusion treats face as one noisy voice among three.
 
 ---
 
@@ -287,7 +288,21 @@ flowchart LR
 | Accuracy when flagged | 0.673 |
 | Flag rate by scenario | clean 0.37, dropout 0.55, blend 0.64, incongruent 0.80 |
 
-Thresholds were tuned on a separate simulated set. They **must be re-tuned** on real validation logits with human ambiguity labels (`fusion.simulate.tune_thresholds`).
+Thresholds were first tuned on a separate simulated set.
+
+### 9.5 Real data (CREMA-D; [REAL_DATA_STUDY](REAL_DATA_STUDY.md) sections 2-3)
+
+| Test actors, 1,224 clips | Value |
+|---|---|
+| Fused accuracy | **68.4 %**, against 54.0 % (voice) and 56.9 % (face); humans watching audio+video score 76.5 % |
+| Calibration | ECE 0.039 |
+| Similarity to human perception | Brier score vs human vote distributions 0.259, against 0.361 for the one-hot acted label |
+| Low confidence predicts the model's own errors | AUROC 0.79 |
+| Low confidence predicts human-ambiguous clips | AUROC 0.64 |
+| `conflict` predicts human voice/face disagreement | AUROC **0.52, chance level: not validated** |
+| Selective answering (thresholds tuned on real validation actors: `conf_p 0.7, margin 0.1, entropy 0.6, conflict_jsd 0.5`) | 37.8 % of clips answered at **90.1 %** accuracy. Flagged clips are 2.3x more often human-ambiguous |
+
+![Real ambiguity](figures/real_ambiguity.png)
 
 ---
 
@@ -307,7 +322,12 @@ Evaluation on the synthetic scripted session (`results/temporal_eval.json`, 10 s
 - **Accuracy:** 0.76 → **0.96**.
 - **Label switches per minute:** 43 → **1.9**.
 - **Transition latency:** 3.6 s → **1.5 s**.
-- **Masking flagged as `conflict`:** 0.23 → **0.70**, with unchanged false alarms (0.05).
+- **Masking flagged as `conflict`:** 0.23 → 0.25, with false alarms down from 0.05 to 0.02. Before the MELD-driven change to text inertia this was 0.70; see REAL_DATA_STUDY section 4.1.
+
+On **real data** ([REAL_DATA_STUDY](REAL_DATA_STUDY.md) section 4):
+- **CREMA-D sessions built from real clips, test actors:** instant accuracy 0.545 → 0.548 (no real gain), flicker 34.7 → 11.1 switches per minute. Parameters are insensitive (validation range 0.531-0.543), so the defaults are kept.
+- **MELD conversations:** any inertia hurts per-utterance text F1, so text now uses dwell 10 s with carry 0.
+- **The mood P(dominant) is calibrated on both datasets** (ECE 0.06-0.07; 0.89 accuracy in the top bin on MELD).
 
 ![Timeline](figures/live_timeline.png)
 
@@ -340,13 +360,20 @@ Evaluation on the synthetic scripted session (`results/temporal_eval.json`, 10 s
 | D21 | Behaviour metrics on valence/arousal, tags with explicit thresholds | Learned pattern classifier | Matches the affect-dynamics literature; transparent; no labelled data available |
 | D22 | Offline files replayed through the live code path | Separate batch path | One code path to test and tune; deterministic |
 | D23 | Face at 4 fps with Haar detection | Every frame; neural detector | Detection dominates cost; 4 fps still sees every expression |
+| D24 | Validate on CREMA-D and MELD (official GitHub sources) | Wait for blocked hosts | Real human labels, including per-modality rater votes, were reachable; the actor-independent protocol avoids leakage |
+| D25 | Split filter persistence (dwell) from inertia (carry); text carry 0 | One time constant | MELD: inertia lowers per-utterance F1 while persistence alone is free |
+| D26 | Window incongruence = P(opposite valence) between modality leaders | V/A distance | The distance rule counted neutral as incompatible, causing false alarms |
+| D27 | Keep default temporal parameters rather than the values retuned on CREMA-D validation | Adopt the retuned values | Accuracy was flat across the sweep and the retuned values were not better on test; session episodes are constructed |
+| D28 | Recommend thresholds tuned on real validation actors | Simulation-tuned | 90.1 % vs 88.6 % accuracy on answered test clips; flagged clips align better with human ambiguity |
 
 ---
 
 ## 12. Limitations, risks, ethics
 
 - **The headline accuracy is pending.** Everything else is ready for it.
-- **Synthetic validation of fusion and temporal logic.** The noise models are assumptions. The next step is real multimodal recordings with human labels (instant emotion, window mood, mixed / masked / escalating), then tuning thresholds, dwell and τ_c.
+- **Real validation is partial.** It covers CREMA-D (acted, single-sentence clips; sessions assembled from them) and MELD text. The `conflict` / `incongruent` signals are **not validated** (AUROC 0.52). In-domain recordings with annotations are still needed ([REAL_DATA_STUDY](REAL_DATA_STUDY.md) section 6).
+- **Real-time gap.** Instant accuracy on real sessions (0.55) is below clip-level fused accuracy (0.68), because the voice reading arrives at the end of each sentence and the face has seen only part of it at each tick.
+- **Per-person variation.** The face model fails on some actors' anger and fear. Per-user calibration is a likely improvement.
 - **Domain shift.** dair-ai texts are tweets with hashtag-derived labels; conversation transcripts differ. FER2013 and acted speech corpora differ from spontaneous behaviour.
 - **Expressed affect is not inner state** (Barrett et al., 2019). Outputs are probabilistic descriptions of expression; the `conflict`, `blend` and `uncertain` states exist to avoid false certainty.
 - **Behavioural tags are heuristics** over seconds to minutes, not clinical constructs.

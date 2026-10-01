@@ -25,9 +25,13 @@ flowchart LR
 |---|---|
 | Real DistilBERT accuracy on dair-ai/emotion | **Not measured yet.** The build sandbox blocked `huggingface.co`. Run `make real-text` or `notebooks/colab_text_run.ipynb` |
 | Edge size and latency (full DistilBERT architecture) | Measured: 268 MB → **56.5 MB**; 40.8 → **15.2 ms** per 32-token input on one core (random weights; timing and size are weight-independent) |
-| Voice and face models | Code complete and tested on synthetic signals; need RAVDESS / CREMA-D and FER2013 to train |
-| Fusion and temporal layer | Implemented, unit-tested, evaluated on simulated data: instant accuracy 0.76 → **0.96**, label flicker 43 → **1.9** switches/min, masking detection 0.23 → **0.70** (versus static fusion) |
-| Tests | 27 passing (`make test`) |
+| Voice and face models | **Trained on real CREMA-D audio+video** (15 unseen test actors): voice 54.0 % (humans by voice only: 46.7 %), face 56.9 % (humans: 70.2 %), **fused 68.4 %** (humans with audio+video: 76.5 %); int8 costs no accuracy |
+| Fusion and temporal layer | **Real data:**<br/>• fusion is calibrated (ECE 0.04) and can answer 38 % of clips at 90 % accuracy while flagging the rest<br/>• the temporal layer cuts label flicker 3x but does not raise instant accuracy<br/>• the mood P(dominant) is calibrated (ECE 0.06-0.07)<br/>• the `conflict` signal is **not validated** (AUROC 0.52)<br/>Details in [docs/REAL_DATA_STUDY.md](docs/REAL_DATA_STUDY.md) |
+| Tests | 29 passing (`make test`) |
+
+![Models vs humans](docs/figures/real_vs_humans.png)
+
+*Real recordings (CREMA-D, 15 unseen actors): the voice model beats human raters judging by voice alone, the face model trails them, and calibrated late fusion adds 11.5 points over the best single modality.*
 
 ## Quickstart
 
@@ -38,6 +42,8 @@ make live-demo     # end-to-end live pipeline on a scripted session: prints read
 make smoke         # text training pipeline on synthetic data (code path only, NOT a result)
 make arch edge latency fusion report     # edge numbers, fusion study, docs/RESULTS.md
 make real-text     # real DistilBERT run (needs huggingface.co, or DATA_DIR + MODEL for offline use)
+make real-meld MELD=/path/to/meld                  # MELD text study (CSV files from github.com/declare-lab/MELD)
+make real-cremad CREMAD=/path/to/cremad           # CREMA-D voice+face study (github.com/CheyneyComputerScience/CREMA-D)
 ```
 
 Live on your own recordings or devices (see [docs/LIVE_PIPELINE.md](docs/LIVE_PIPELINE.md)):
@@ -62,6 +68,7 @@ p.run(events)          # records: "block", "instant" (every 0.5 s), "window" (ev
 | [docs/TECHNICAL_DOCUMENTATION.md](docs/TECHNICAL_DOCUMENTATION.md) | Full what / why / how: architecture, text training and the 90 % gate, compression variants, edge simulation, voice and face tracks, fusion, a 23-item decision log, limitations, glossary, references |
 | [docs/TEMPORAL_DESIGN.md](docs/TEMPORAL_DESIGN.md) | Block segmentation rules, text strategy decision, sticky HMM filter, Dirichlet mood with P(dominant), behaviour metrics (affect-dynamics literature), parameter rationale, evaluation |
 | [docs/LIVE_PIPELINE.md](docs/LIVE_PIPELINE.md) | Running demo / files / real time, input formats, output record schemas, one-core compute budget |
+| [docs/REAL_DATA_STUDY.md](docs/REAL_DATA_STUDY.md) | Real human-labelled validation on CREMA-D and MELD: models vs human raters, fusion and ambiguity vs human judgement, temporal retuning, and what changed as a result |
 | [docs/RESULTS.md](docs/RESULTS.md) | All measured numbers and graphs, regenerated from result files |
 
 ## Layout

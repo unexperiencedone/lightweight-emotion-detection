@@ -1,4 +1,4 @@
-.PHONY: install test smoke arch edge latency fusion live-demo report real-text
+.PHONY: install test smoke arch edge latency fusion live-demo report real-text real-meld real-cremad
 PY ?= python
 export PYTHONPATH := $(CURDIR)
 
@@ -12,3 +12,12 @@ fusion:    ; $(PY) scripts/run_fusion_sim.py
 live-demo: ; $(PY) scripts/live.py demo --out results/live_demo --quiet   # temporal demo + figures + 10-seed eval
 report:    ; $(PY) -m emotion_edge.report
 real-text: ; scripts/run_text.sh   # needs huggingface.co (or DATA_DIR + MODEL)
+CREMAD ?= data/cremad
+MELD ?= data/meld
+FEATS ?= artifacts/cremad_feats
+MODELS ?= artifacts/cremad_models
+real-meld: ; $(PY) scripts/real_meld.py --root $(MELD)
+real-cremad:
+	OMP_NUM_THREADS=1 $(PY) scripts/real_cremad_extract.py --root $(CREMAD) --out $(FEATS)
+	$(PY) scripts/real_cremad.py --root $(CREMAD) --feats $(FEATS) --out $(MODELS)
+	$(PY) scripts/real_figures.py --root $(CREMAD) --feats $(FEATS) --models $(MODELS)

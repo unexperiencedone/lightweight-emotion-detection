@@ -31,7 +31,7 @@
 
 ![budget](figures/latency_budget.png)
 
-Sizes: {'prosody_int8': 0.034522, 'face_int8': 0.098353}; params: {'prosody_mlp': 28936, 'face_cnn': 66407}
+Sizes: {'prosody_int8': 0.034522, 'face_int8': 0.09838}; params: {'prosody_mlp': 28936, 'face_cnn': 66407}
 
 ## 4. Fusion validation (**SYNTHETIC modality outputs**, strengths are assumptions; verifies logic, not real-world accuracy)
 
@@ -46,14 +46,14 @@ Sizes: {'prosody_int8': 0.034522, 'face_int8': 0.098353}; params: {'prosody_mlp'
 
 | metric | static per-tick fusion | temporal layer |
 |---|---|---|
-| instant accuracy, clean phases | 0.760 ± 0.026 | **0.956 ± 0.007** |
-| label switches per minute (truth: ~0) | 43.489 ± 5.276 | **1.883 ± 0.533** |
-| transition latency (s) | 3.625 ± 1.522 | **1.525 ± 0.261** |
-| masking phase flagged 'conflict' | 0.229 ± 0.082 | **0.703 ± 0.194** |
-| 'conflict' false alarms, clean phases | 0.053 ± 0.029 | **0.053 ± 0.028** |
-| blend phase labelled joy or love | 0.686 ± 0.037 | **0.893 ± 0.045** |
+| instant accuracy, clean phases | 0.760 ± 0.026 | **0.959 ± 0.010** |
+| label switches per minute (truth: ~0) | 43.489 ± 5.276 | **1.705 ± 0.000** |
+| transition latency (s) | 3.625 ± 1.522 | **1.400 ± 0.339** |
+| masking phase flagged 'conflict' | 0.229 ± 0.082 | **0.250 ± 0.130** |
+| 'conflict' false alarms, clean phases | 0.053 ± 0.029 | **0.018 ± 0.013** |
+| blend phase labelled joy or love | 0.686 ± 0.037 | **0.901 ± 0.044** |
 
-Window mood (30 s): accuracy on windows with a clear majority emotion 1.00 (naive majority vote of raw blocks: 1.00); transition reported with the right target 0.80; 'escalating' tag in escalation windows 0.65, false alarms 0.00.
+Window mood (30 s): accuracy on windows with a clear majority emotion 1.00 (naive majority vote of raw blocks: 1.00); transition reported with the right target 0.80; 'escalating' tag in escalation windows 0.72, false alarms 0.00.
 
 ![temporal_eval](figures/temporal_eval.png)
 
@@ -68,3 +68,30 @@ Window mood (30 s): accuracy on windows with a clear majority emotion 1.00 (naiv
 ![live_filter_effect](figures/live_filter_effect.png)
 
 ![segmentation](figures/segmentation.png)
+
+## 6. Real data: CREMA-D (15 unseen test actors) and MELD; details in REAL_DATA_STUDY.md
+
+| | model | humans on the same clips |
+|---|---|---|
+| voice only | 0.540 (int8 0.552) | 0.467 |
+| face only | 0.569 (int8 0.573) | 0.702 |
+| fused | 0.684 (ECE 0.039) | 0.765 |
+
+- Selective: answered 0.38 of clips at accuracy 0.901 (flagged: 0.552)
+- AUROC: 1-p_top vs model error 0.79; vs human ambiguity 0.64; conflict vs human voice/face disagreement 0.52 (not validated)
+- Real sessions: instant accuracy static 0.545 vs temporal 0.548; flicker 34.7 vs 11.1 switches/min; mood P(dominant) ECE 0.074
+- MELD text (TF-IDF+LR): test acc 0.605, weighted-F1 0.562; mood P(dominant) ECE 0.063
+
+![real_vs_humans](figures/real_vs_humans.png)
+
+![real_confusions](figures/real_confusions.png)
+
+![real_ambiguity](figures/real_ambiguity.png)
+
+![real_temporal](figures/real_temporal.png)
+
+![real_mood_reliability](figures/real_mood_reliability.png)
+
+![real_meld_text_inertia](figures/real_meld_text_inertia.png)
+
+![real_session_timeline](figures/real_session_timeline.png)

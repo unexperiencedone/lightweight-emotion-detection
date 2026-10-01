@@ -136,6 +136,24 @@ def main():
         for f in ("temporal_eval", "live_timeline", "live_mood", "mood_dirichlet_t60", "live_valence_arousal", "live_filter_effect", "segmentation"):
             if (FIG / f"{f}.png").exists():
                 L.append(f"![{f}](figures/{f}.png)\n")
+    rc, rm = load("results/real_cremad.json"), load("results/real_meld.json")
+    if rc:
+        L.append("## 6. Real data: CREMA-D (15 unseen test actors) and MELD; details in REAL_DATA_STUDY.md\n")
+        L.append("| | model | humans on the same clips |\n|---|---|---|")
+        L.append(f"| voice only | {rc['speech']['test_acc_vs_intended']:.3f} (int8 {rc['speech']['test_int8_acc_vs_intended']:.3f}) | {rc['speech']['human_acc_vs_intended_same_clips']:.3f} |")
+        L.append(f"| face only | {rc['face']['test_acc_vs_intended']:.3f} (int8 {rc['face']['test_int8_acc_vs_intended']:.3f}) | {rc['face']['human_acc_vs_intended_same_clips']:.3f} |")
+        ft = rc["fusion_clip_level"]["test"]
+        L.append(f"| fused | {ft['fused_acc_vs_intended']:.3f} (ECE {ft['fused_ece_vs_intended']:.3f}) | {ft['human_av_acc_vs_intended']:.3f} |\n")
+        st = rc["selective_test"]["real_tuned"]; tt = rc["temporal"]
+        L.append(f"- Selective: answered {st['coverage_confident']:.2f} of clips at accuracy {st['acc_confident']:.3f} (flagged: {st['acc_flagged']:.3f})")
+        L.append(f"- AUROC: 1-p_top vs model error {ft['auroc_1_minus_p_top1__fused_wrong']:.2f}; vs human ambiguity {ft['auroc_1_minus_p_top1__human_ambiguous']:.2f}; conflict vs human voice/face disagreement {ft['auroc_conflict__human_incongruent']:.2f} (not validated)")
+        L.append(f"- Real sessions: instant accuracy static {tt['test_static_baseline']['instant_acc']:.3f} vs temporal {tt['test_default_params']['instant_acc']:.3f}; "
+                 f"flicker {tt['test_static_baseline']['flicker_per_min']:.1f} vs {tt['test_default_params']['flicker_per_min']:.1f} switches/min; mood P(dominant) ECE {tt['test_default_params']['mood_p_dominant_ece']:.3f}")
+    if rm:
+        L.append(f"- MELD text (TF-IDF+LR): test acc {rm['test_raw']['accuracy']:.3f}, weighted-F1 {rm['test_raw']['weighted_f1']:.3f}; mood P(dominant) ECE {rm['mood']['p_dominant_ece']:.3f}\n")
+    for f in ("real_vs_humans", "real_confusions", "real_ambiguity", "real_temporal", "real_mood_reliability", "real_meld_text_inertia", "real_session_timeline"):
+        if (FIG / f"{f}.png").exists():
+            L.append(f"![{f}](figures/{f}.png)\n")
     Path("docs/RESULTS.md").write_text("\n".join(L))
     print("wrote docs/RESULTS.md")
 

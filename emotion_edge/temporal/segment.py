@@ -173,8 +173,8 @@ class AudioSegmenter:
 
 @dataclass
 class FrameSampler:
-    """Down-sample a camera/video stream to the analysis rate. Face detection (~45 ms/frame on 1 core) dominates the
-    face cost, so 4 fps (~18 % of one core) is the default; expressions last 0.5-4 s, so 4 fps still sees each one."""
+    """Down-sample a camera/video stream to the analysis rate. Face detection (~20-30 ms/frame on 1 core) dominates the
+    face cost, so 4 fps (~8-12 % of one core) is the default; expressions last 0.5-4 s, so 4 fps still sees each one."""
     fps: float = 4.0
     _next: float = 0.0
 
