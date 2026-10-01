@@ -1,0 +1,16 @@
+torch>=2.2
+transformers>=4.40
+datasets>=2.18        # only needed to pull dair-ai/emotion from the Hub; offline parquet/jsonl also supported
+onnx>=1.16
+onnxruntime>=1.18
+onnxscript
+numpy
+pandas
+scipy
+scikit-learn
+matplotlib
+pyarrow
+librosa>=0.10      # speech prosody
+soundfile
+opencv-python-headless<5   # 4.x: Haar cascade API (removed in 5.x); face detection + preprocessing
+pytest

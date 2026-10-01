@@ -1,0 +1,31 @@
+{
+  "audio_prosody_extract_3s": {
+    "p50_ms": 36.660334999965016,
+    "p95_ms": 40.83301280014666
+  },
+  "audio_infer_int8": {
+    "p50_ms": 0.013796999837722979,
+    "p95_ms": 0.02317610000091008
+  },
+  "face_detect_crop_320x240": {
+    "p50_ms": 45.08761150009377,
+    "p95_ms": 59.84554305011898
+  },
+  "face_infer_int8": {
+    "p50_ms": 0.3011750000041502,
+    "p95_ms": 0.44109274995207665
+  },
+  "fusion": {
+    "p50_ms": 0.20483150001382455,
+    "p95_ms": 0.3192378998960518
+  },
+  "sizes_mb": {
+    "prosody_int8": 0.034522,
+    "face_int8": 0.098353
+  },
+  "params": {
+    "prosody_mlp": 28936,
+    "face_cnn": 66407
+  },
+  "note": "random weights; 1 pinned host core; add the text figure from results/edge_text_*.json"
+}

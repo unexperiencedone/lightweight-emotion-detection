@@ -1,0 +1,125 @@
+"""Build figures + docs/RESULTS.md from the JSON files the pipelines write. Every number in RESULTS.md comes from a file;
+anything computed on synthetic data or random weights is stamped as such."""
+from __future__ import annotations
+import json
+from pathlib import Path
+import numpy as np
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+
+PAL = ["#2a6fbb", "#e08a1e", "#3a9d6e", "#b5475c", "#7b6cc4"]   # colour-blind-safe-ish categorical set
+plt.rcParams.update({"axes.spines.top": False, "axes.spines.right": False, "font.size": 10, "figure.dpi": 130})
+R = Path("results"); FIG = Path("docs/figures"); FIG.mkdir(parents=True, exist_ok=True)
+
+
+def load(p):
+    p = Path(p)
+    return json.loads(p.read_text()) if p.exists() else None
+
+
+def fig_edge(edge, name):
+    scen = list(next(iter(edge["results"].values())).keys())
+    fig, ax = plt.subplots(1, 2, figsize=(11, 3.8))
+    w = 0.8 / len(edge["results"])
+    for j, (m, r) in enumerate(edge["results"].items()):
+        for k, L in enumerate(("len32", "len64")):
+            vals = [r[s].get(L, {}).get("p50_ms", np.nan) for s in scen]
+            ax[k].bar(np.arange(len(scen)) + j * w, vals, w, label=m, color=PAL[j])
+    for k, L in enumerate((32, 64)):
+        ax[k].set_xticks(np.arange(len(scen)) + 0.4 - w / 2); ax[k].set_xticklabels([s.replace("_", "\n") for s in scen], fontsize=8)
+        ax[k].set_ylabel("p50 latency (ms)"); ax[k].set_title(f"{L}-token input, batch 1")
+    ax[0].legend(frameon=False, fontsize=8)
+    fig.tight_layout(); fig.savefig(FIG / f"{name}.png"); plt.close(fig)
+
+
+def fig_queue(edge, name, scenario="sbc_1core"):
+    fig, ax = plt.subplots(figsize=(5.5, 3.8))
+    for j, (m, r) in enumerate(edge["results"].items()):
+        q = r[scenario].get("queue")
+        if not q: continue
+        lam = [float(k) for k in q]
+        ax.plot(lam, [min(v["p95_ms"], 2000) for v in q.values()], "o-", color=PAL[j], label=m)
+    ax.set_xlabel("request rate (Hz)"); ax.set_ylabel("p95 latency incl. queueing (ms, clipped at 2000)")
+    ax.set_title(f"Load test, {scenario}"); ax.legend(frameon=False, fontsize=8)
+    fig.tight_layout(); fig.savefig(FIG / f"{name}.png"); plt.close(fig)
+
+
+def fig_confusion(res, name):
+    from emotion_edge.labels import TEXT_LABELS
+    cm = np.array(res["variants"]["torch_fp32"]["confusion"]); cmn = cm / cm.sum(1, keepdims=True)
+    fig, ax = plt.subplots(figsize=(5, 4.3)); im = ax.imshow(cmn, cmap="Blues", vmin=0, vmax=1)
+    ax.set_xticks(range(6)); ax.set_xticklabels(TEXT_LABELS, rotation=45, ha="right"); ax.set_yticks(range(6)); ax.set_yticklabels(TEXT_LABELS)
+    for i in range(6):
+        for j in range(6): ax.text(j, i, f"{cmn[i, j]:.2f}", ha="center", va="center", fontsize=8, color="white" if cmn[i, j] > .5 else "black")
+    ax.set_xlabel("predicted"); ax.set_ylabel("true"); fig.colorbar(im, fraction=0.046); fig.tight_layout(); fig.savefig(FIG / f"{name}.png"); plt.close(fig)
+
+
+def fig_fusion(f):
+    fig, ax = plt.subplots(1, 3, figsize=(13, 3.8))
+    u = f["tuned"]["unimodal_acc_clean"]; names = list(u) + ["fused"]; vals = list(u.values()) + [f["tuned"]["fused_acc_clean"]]
+    ax[0].bar(names, vals, color=PAL[:4]); ax[0].set_ylim(0, 1); ax[0].set_title("Accuracy, clean/dropout samples")
+    for i, v in enumerate(vals): ax[0].text(i, v + .01, f"{v:.2f}", ha="center", fontsize=9)
+    rc = f["risk_coverage"]; ax[1].plot(rc["coverage"], rc["accuracy"], color=PAL[0]); ax[1].axhline(f["overall_acc_no_abstain"], ls="--", color="grey")
+    ax[1].set_xlabel("coverage (fraction answered)"); ax[1].set_ylabel("accuracy"); ax[1].set_title("Selective prediction")
+    kinds = ["clean", "dropout", "blend", "incongruent"]; states = ["confident", "blend", "ambiguous", "conflict", "uncertain"]
+    bottom = np.zeros(len(kinds))
+    for j, s in enumerate(states):
+        v = np.array([f["tuned"]["state_by_kind"][k][s] for k in kinds]); ax[2].bar(kinds, v, bottom=bottom, label=s, color=PAL[j]); bottom += v
+    ax[2].legend(frameon=False, fontsize=7, loc="upper left", bbox_to_anchor=(1, 1)); ax[2].set_title("Ambiguity state by scenario")
+    fig.tight_layout(); fig.savefig(FIG / "fusion_sim.png"); plt.close(fig)
+
+
+def fig_latency_budget(mm, text_ms):
+    stages = {"text infer (int8)": text_ms, "audio features": mm["audio_prosody_extract_3s"]["p50_ms"], "audio infer": mm["audio_infer_int8"]["p50_ms"],
+              "face detect": mm["face_detect_crop_320x240"]["p50_ms"], "face infer": mm["face_infer_int8"]["p50_ms"], "fusion": mm["fusion"]["p50_ms"]}
+    fig, ax = plt.subplots(figsize=(7, 3.2)); ax.barh(list(stages)[::-1], list(stages.values())[::-1], color=PAL[0])
+    for i, v in enumerate(list(stages.values())[::-1]): ax.text(v + .5, i, f"{v:.1f}", va="center", fontsize=9)
+    ax.set_xlabel("p50 ms, 1 pinned core"); ax.set_title("Where the time goes"); fig.tight_layout(); fig.savefig(FIG / "latency_budget.png"); plt.close(fig)
+
+
+def main():
+    L = ["# Results (auto-generated by `python -m emotion_edge.report`)\n"]
+    text = load("artifacts/text/results.json")
+    L.append("## 1. Text model (DistilBERT, dair-ai/emotion)\n")
+    if text and not text.get("synthetic"):
+        v = text["variants"]; fig_confusion(text, "text_confusion")
+        L.append(f"Gate (rounded test accuracy >= {text['gate']['threshold_pct']}%): **{'PASSED' if text['gate']['passed'] else 'FAILED'}**\n")
+        L.append("| variant | test acc % | macro-F1 | size MB | drop (pts) | agree w/ torch |\n|---|---|---|---|---|---|")
+        for k, r in v.items():
+            L.append(f"| {k} | {r['accuracy_rounded_pct']} | {r['macro_f1']:.4f} | {r.get('size_mb', float('nan')):.1f} | {r.get('drop_vs_fp32_pts', 0):.1f} | {r.get('agreement_with_torch', 1):.4f} |")
+        L.append(f"\nDeployment pick: `{text.get('deploy_choice', 'n/a')}`; temperature = {text['calibration']['temperature']:.3f} (ECE {text['calibration']['ece_before']:.3f} -> {text['calibration']['ece_after']:.3f}).\n\n![confusion](figures/text_confusion.png)\n")
+    else:
+        L.append("> **NOT YET RUN ON REAL DATA.** `huggingface.co` was blocked by the sandbox network policy, so `dair-ai/emotion` and the "
+                 "`distilbert-base-uncased` weights were unavailable. No accuracy is claimed. Run `scripts/run_text.sh` (or the Colab notebook) and re-run this report.\n")
+    arch = load("results/edge_text_arch.json")
+    if arch:
+        fig_edge(arch, "edge_text_arch"); fig_queue(arch, "queue_text_arch")
+        L.append("## 2. Edge simulation: full-size DistilBERT architecture (RANDOM weights: valid for latency/size, not accuracy)\n")
+        L.append("| variant | scenario | p50 ms (16 tok) | p50 (32) | p50 (64) | p95 (32) | peak RSS MB |\n|---|---|---|---|---|---|---|")
+        for m, r in arch["results"].items():
+            for s, x in r.items():
+                if x.get("status") == "ok":
+                    L.append(f"| {m} | {s} | {x['len16']['p50_ms']:.1f} | {x['len32']['p50_ms']:.1f} | {x['len64']['p50_ms']:.1f} | {x['len32']['p95_ms']:.1f} | {x['peak_rss_mb']:.0f} |")
+                else:
+                    L.append(f"| {m} | {s} | {x.get('status')} | | | | |")
+        L.append("\n![edge](figures/edge_text_arch.png)\n![queue](figures/queue_text_arch.png)\n")
+    mm = load("results/multimodal_latency.json")
+    if mm and arch:
+        fig_latency_budget(mm, arch["results"]["pruned15k_int8_emb8"]["sbc_1core"]["len32"]["p50_ms"])
+        L.append("## 3. End-to-end multimodal latency budget (1 pinned core, random weights)\n\n![budget](figures/latency_budget.png)\n")
+        L.append(f"Sizes: {mm['sizes_mb']}; params: {mm['params']}\n")
+    fu = load("results/fusion_sim.json")
+    if fu:
+        fig_fusion(fu); t = fu["tuned"]
+        L.append("## 4. Fusion validation (**SYNTHETIC modality outputs**, strengths are assumptions; verifies logic, not real-world accuracy)\n")
+        L.append(f"- Fused accuracy on clean/dropout samples: **{t['fused_acc_clean']:.3f}** vs best single modality {max(t['unimodal_acc_clean'].values()):.3f}")
+        L.append(f"- Accuracy when answered as *confident*: **{t['acc_when_confident']:.3f}** (coverage {t['coverage_confident']:.2f}); when flagged: {t['acc_when_flagged']:.3f}")
+        L.append(f"- Share of samples flagged (not 'confident') by scenario: " + ", ".join(f"{k} {v:.2f}" for k, v in t["flag_rate_by_kind"].items()))
+        L.append(f"- Tuned thresholds: `{fu['tuned_thresholds']}`\n\n![fusion](figures/fusion_sim.png)\n")
+    Path("docs/RESULTS.md").write_text("\n".join(L))
+    print("wrote docs/RESULTS.md")
+
+
+if __name__ == "__main__":
+    main()
