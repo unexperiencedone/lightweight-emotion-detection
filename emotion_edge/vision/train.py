@@ -27,11 +27,23 @@ def load_fer_csv(path):
     return X, df.emotion.values.astype(np.int64), df.Usage.values
 
 
+_CASCADE = None
+
+
+def _cascade():
+    """Load the Haar cascade once per process (loading it costs far more than one detection)."""
+    global _CASCADE
+    if _CASCADE is None:
+        import cv2
+        _CASCADE = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
+    return _CASCADE
+
+
 def detect_and_crop(bgr, size=48):
     """Largest Haar-cascade face -> (crop float32 [0,1], detector quality in [0,1]); None if no face."""
     import cv2
     g = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
-    cas = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
+    cas = _cascade()
     faces = cas.detectMultiScale(g, 1.1, 5, minSize=(40, 40))
     if len(faces) == 0:
         return None, 0.0

@@ -21,9 +21,11 @@ from emotion_edge.temporal.tracker import StickyFilter, MoodWindow, Obs, behavio
 #   dwell_s : how long an instant reading stays relevant without new evidence
 #   tau_c   : correlation time -> one "independent" unit of mood evidence per tau_c seconds of observation
 DEFAULTS = {
-    "text":   {"dwell_s": 10.0, "tau_c": 1.0, "base_weight": 1.0},   # sparse, one utterance = one unit (dur := 1)
-    "speech": {"dwell_s": 6.0,  "tau_c": 2.0, "base_weight": 1.0},   # 1-6 s segments
-    "face":   {"dwell_s": 3.0,  "tau_c": 1.0, "base_weight": 1.0},   # 4 fps frames, highly autocorrelated
+    # text: persistence 10 s (a reading stays comparable with face/voice until the next utterance) but NO inertia:
+    # on MELD conversations any carry > 0 lowers per-utterance weighted-F1 (docs/REAL_DATA_STUDY.md)
+    "text":   {"dwell_s": 10.0, "carry": 0.0, "tau_c": 1.0, "base_weight": 1.0},   # one utterance = one unit (dur := 1)
+    "speech": {"dwell_s": 6.0,  "carry": 1.0, "tau_c": 2.0, "base_weight": 1.0},   # 1-6 s segments
+    "face":   {"dwell_s": 3.0,  "carry": 1.0, "tau_c": 1.0, "base_weight": 1.0},   # 4 fps frames, highly autocorrelated
 }
 
 
@@ -35,12 +37,13 @@ class SessionConfig:
     temperatures: dict = field(default_factory=lambda: {"text": 1.0, "speech": 1.0, "face": 1.0})
     modality: dict = field(default_factory=lambda: {k: dict(v) for k, v in DEFAULTS.items()})
     thresholds: Thresholds = field(default_factory=Thresholds)
+    p_incongruent: float = 0.4        # window tagged 'incongruent' when P(modality leaders incompatible) >= this
 
 
 class LiveSession:
     def __init__(self, cfg: SessionConfig | None = None):
         self.cfg = cfg or SessionConfig()
-        self.filters = {m: StickyFilter(dwell_s=p["dwell_s"]) for m, p in self.cfg.modality.items()}
+        self.filters = {m: StickyFilter(dwell_s=p["dwell_s"], carry=p.get("carry", 1.0)) for m, p in self.cfg.modality.items()}
         self.moods = {m: MoodWindow(window_s=self.cfg.window_s, tau_c=p["tau_c"]) for m, p in self.cfg.modality.items()}
         self.seen: set[str] = set()
         self.grid_t: list[float] = []
@@ -105,6 +108,6 @@ class LiveSession:
                "moods": {m: e.as_dict() for m, e in moods.items()},
                "fused_mood": None if fused_mood is None else fused_mood.as_dict(),
                "behaviour": beh, "conflict_share": round(conflict_share, 3)}
-        if conflict_share >= 0.3 or (fused_mood is not None and fused_mood.extra.get("cross_modal_jsd", 0) >= 0.15):
+        if conflict_share >= 0.3 or (fused_mood is not None and fused_mood.extra.get("p_incongruent", 0) >= self.cfg.p_incongruent):
             out["behaviour"]["fused"]["tags"] = out["behaviour"]["fused"]["tags"] + ["incongruent"]
         return out

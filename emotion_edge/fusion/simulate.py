@@ -11,6 +11,8 @@ Strengths are assumptions chosen to resemble lightweight real models (text ~93%,
 from __future__ import annotations
 import numpy as np
 from emotion_edge.labels import CANON, LABELS, MAPS, CIDX, coverage
+
+MODS = ("text", "speech", "face")   # the simulated modalities (LABELS may hold more, e.g. text_conv)
 from emotion_edge.fusion.fuse import Modality, fuse, Thresholds, _VA_DIST
 
 STRENGTH = {"text": 4.0, "speech": 2.2, "face": 2.0}
@@ -41,7 +43,7 @@ def make_dataset(n=4000, seed=0, p_dropout=0.25, p_blend=0.12, p_incong=0.15):
         u = rng.random()
         true = CANON[rng.integers(len(CANON))]
         kind = "clean"
-        seen = {m: true for m in LABELS}
+        seen = {m: true for m in MODS}
         if u < p_incong:
             kind = "incongruent"
             m = rng.choice(["speech", "face"])
@@ -51,14 +53,14 @@ def make_dataset(n=4000, seed=0, p_dropout=0.25, p_blend=0.12, p_incong=0.15):
             kind = "blend"
             a, b = BLENDS[rng.integers(len(BLENDS))]
             true = a
-            for m in LABELS:
+            for m in MODS:
                 seen[m] = a if rng.random() < 0.5 else b
-        present = {m: True for m in LABELS}
+        present = {m: True for m in MODS}
         if rng.random() < p_dropout and kind == "clean":
             kind = "dropout"
-            present[rng.choice(list(LABELS))] = False
+            present[rng.choice(list(MODS))] = False
         mods = {}
-        for m in LABELS:
+        for m in MODS:
             if present[m]:
                 q = float(np.clip(rng.beta(6, 2), 0.2, 1))        # per-input quality
                 mods[m] = Modality(m, logits=_logits(m, seen[m], rng, 0.6 + 0.4 * q), temperature=TEMP[m], quality=q)
@@ -68,7 +70,7 @@ def make_dataset(n=4000, seed=0, p_dropout=0.25, p_blend=0.12, p_incong=0.15):
 
 def evaluate(rows, th=Thresholds()):
     out = {"n": len(rows)}
-    uni = {m: [] for m in LABELS}
+    uni = {m: [] for m in MODS}
     fused_ok, states, kinds, pt1, conf = [], [], [], [], []
     for r in rows:
         f = fuse(list(r["mods"].values()), th=th)

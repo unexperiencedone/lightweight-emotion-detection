@@ -214,7 +214,7 @@ The neural networks are **not** the bottleneck. Face detection (about 45 ms per 
 
 | Step | What | Why |
 |---|---|---|
-| Features (`speech/features.py`) | About 130 summary statistics:<br/>• F0 in semitones relative to 100 Hz (YIN; de Cheveigné & Kawahara, 2002), and its deltas<br/>• log-RMS and deltas<br/>• voiced ratio, jitter and shimmer proxies<br/>• onset rate (tempo proxy), pause ratio<br/>• spectral centroid, rolloff, ZCR<br/>• 13 MFCC means and standard deviations<br/>Each statistic is summarised by mean, std, min, max, range, p10, p90 and slope | Affect in the voice is largely paralinguistic. This mirrors the reasoning behind compact standard sets such as eGeMAPS (Eyben et al., 2016). Semitones make pitch speaker-agnostic |
+| Features (`speech/features.py`) | 88 features:<br/>• F0 in semitones relative to 100 Hz (YIN; de Cheveigné & Kawahara, 2002), and its deltas<br/>• log-RMS and deltas<br/>• voiced ratio, jitter and shimmer proxies<br/>• onset rate (tempo proxy), pause ratio<br/>• spectral centroid, rolloff, ZCR<br/>• 13 MFCC means and standard deviations<br/>Contour features are summarised by mean, std, min, max, range, p10, p90 and slope | Affect in the voice is largely paralinguistic. This mirrors the reasoning behind compact standard sets such as eGeMAPS (Eyben et al., 2016). Semitones make pitch speaker-agnostic |
 | Model | 29 k-parameter MLP; standardisation baked into the graph; feature-noise augmentation; label smoothing | Tiny, robust, int8-friendly |
 | Split | **By actor** (RAVDESS: Livingstone & Russo, 2018; CREMA-D: Cao et al., 2014) | Utterance-level splits leak speaker identity and inflate accuracy |
 | Export | ONNX + dynamic int8 (0.03 MB) | |

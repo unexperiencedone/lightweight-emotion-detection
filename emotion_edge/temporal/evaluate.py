@@ -93,11 +93,15 @@ def evaluate_seed(seed: int) -> dict:
             if lo + 0.3 * r["window_s"] <= b <= r["t"] - 0.3 * r["window_s"]:
                 fm = r["fused_mood"]
                 tr_hits.append(fm["state"] == "transition" and fm.get("transition", [None, None])[1] == new)
+    inc_hits = [("incongruent" in r["behaviour"]["fused"]["tags"]) for r in win if 55 <= r["t"] <= 70]
+    inc_fa = [("incongruent" in r["behaviour"]["fused"]["tags"]) for r in win if r["t"] <= 45 or 95 <= r["t"] <= 105]
     esc_hits = [("escalating" in r["behaviour"]["fused"]["tags"]) for r in win if 95 <= r["t"] <= 110]
     esc_fa = [("escalating" in r["behaviour"]["fused"]["tags"]) for r in win if r["t"] <= 45]
     out["window"] = {"n_clean_windows": n, "mood_acc": hits / n if n else float("nan"),
                      "naive_majority_vote_acc": naive_hits / n if n else float("nan"),
                      "transition_detected": float(np.mean(tr_hits)) if tr_hits else float("nan"),
+                     "incongruent_tag_rate_masking": float(np.mean(inc_hits)) if inc_hits else float("nan"),
+                     "incongruent_false_alarm": float(np.mean(inc_fa)) if inc_fa else float("nan"),
                      "escalation_tag_rate": float(np.mean(esc_hits)) if esc_hits else float("nan"),
                      "escalation_false_alarm": float(np.mean(esc_fa)) if esc_fa else float("nan")}
     return out

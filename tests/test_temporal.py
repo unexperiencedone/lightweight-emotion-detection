@@ -160,3 +160,25 @@ def test_demo_pipeline_runs_and_beats_static_fusion():
     assert r["temporal"]["acc_clean"] > r["baseline"]["acc_clean"]
     assert r["temporal"]["flicker_per_min"] < r["baseline"]["flicker_per_min"] / 5
     assert r["temporal"]["conflict_rate_masking"] > r["baseline"]["conflict_rate_masking"]
+
+
+def test_carry_separates_inertia_from_persistence():
+    hi, lo = StickyFilter(dwell_s=10, carry=1.0), StickyFilter(dwell_s=10, carry=0.0)
+    for t in range(5):
+        hi.update(float(t), peaked("joy", 0.7)); lo.update(float(t), peaked("joy", 0.7))
+    hi.update(5.0, peaked("anger", 0.7)); lo.update(5.0, peaked("anger", 0.7))
+    assert hi.b.argmax() == CIDX["joy"]            # inertia: one new utterance cannot overturn five
+    assert lo.b.argmax() == CIDX["anger"]          # no inertia: each utterance judged on its own
+    lo.predict(8.0)
+    assert lo.b.argmax() == CIDX["anger"] and lo.informativeness > 0.05   # ...but it still persists for comparison
+
+
+def test_p_incongruent_needs_opposite_valence_not_neutral():
+    def windows(a, b):
+        wa, wb = MoodWindow(), MoodWindow()
+        for t in range(20):
+            wa.add(Obs(float(t), peaked(a), 1.0, 1.0)); wb.add(Obs(float(t), peaked(b), 1.0, 1.0))
+        return {"text": wa, "face": wb}
+    assert fuse_moods(windows("joy", "anger"), 20.0).extra["p_incongruent"] > 0.9
+    assert fuse_moods(windows("fear", "neutral"), 20.0).extra["p_incongruent"] < 0.05   # neutral is not incongruence
+    assert fuse_moods(windows("joy", "love"), 20.0).extra["p_incongruent"] < 0.05

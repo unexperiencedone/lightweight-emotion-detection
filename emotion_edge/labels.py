@@ -15,6 +15,9 @@ SPEECH_LABELS = ["neutral", "calm", "happy", "sad", "angry", "fearful", "disgust
 # FER2013 / FER+ order
 FACE_LABELS = ["angry", "disgust", "fear", "happy", "sad", "surprise", "neutral"]
 
+# MELD conversational text (Poria et al., 2019): utterances from TV dialogues
+TEXT_CONV_LABELS = ["neutral", "joy", "sadness", "anger", "surprise", "fear", "disgust"]
+
 CANON = ["anger", "disgust", "fear", "joy", "love", "neutral", "sadness", "surprise"]
 CIDX = {c: i for i, c in enumerate(CANON)}
 
@@ -33,6 +36,8 @@ _SPEECH_MAP = {"neutral": {"neutral": 1}, "calm": {"neutral": 1}, "happy": {"joy
 _FACE_MAP = {"angry": {"anger": 1}, "disgust": {"disgust": 1}, "fear": {"fear": 1},
              "happy": {"joy": .85, "love": .15}, "sad": {"sadness": 1},
              "surprise": {"surprise": 1}, "neutral": {"neutral": 1}}
+_TEXT_CONV_MAP = {"neutral": {"neutral": 1}, "joy": {"joy": .85, "love": .15}, "sadness": {"sadness": 1},
+                  "anger": {"anger": 1}, "surprise": {"surprise": 1}, "fear": {"fear": 1}, "disgust": {"disgust": 1}}
 
 
 def _matrix(labels, mapping):
@@ -45,8 +50,9 @@ def _matrix(labels, mapping):
 
 MAPS = {"text": _matrix(TEXT_LABELS, _TEXT_MAP),
         "speech": _matrix(SPEECH_LABELS, _SPEECH_MAP),
-        "face": _matrix(FACE_LABELS, _FACE_MAP)}
-LABELS = {"text": TEXT_LABELS, "speech": SPEECH_LABELS, "face": FACE_LABELS}
+        "face": _matrix(FACE_LABELS, _FACE_MAP),
+        "text_conv": _matrix(TEXT_CONV_LABELS, _TEXT_CONV_MAP)}
+LABELS = {"text": TEXT_LABELS, "speech": SPEECH_LABELS, "face": FACE_LABELS, "text_conv": TEXT_CONV_LABELS}
 
 
 def coverage(modality: str) -> np.ndarray:

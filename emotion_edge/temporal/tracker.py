@@ -5,7 +5,7 @@ Two time scales, two probability models (rationale and references in docs/TEMPOR
 1. INSTANT EMOTION  -- sticky hidden-Markov filter over the 8 canonical emotions.
    Emotions persist for seconds, so the state at t is strongly predicted by the state at t-dt.
      predict : b <- s(dt) * b + (1 - s(dt)) * pi        s(dt) = exp(-dt / dwell)   (time-aware stickiness)
-     update  : b <- b * (q / pi) ** r, normalised       q = calibrated canonical posterior of the block,
+     update  : b <- (c*b + (1-c)*pi) * (q / pi) ** r    c = carry (inertia), q = calibrated canonical posterior of the block,
                                                         r = block reliability (quality); q/pi = scaled likelihood
    Between observations only `predict` runs, so a stale modality decays smoothly back to the base rate pi
    and stops influencing fusion -- staleness handling falls out of the model instead of being a special case.
@@ -38,7 +38,14 @@ VA = va_matrix()
 # ------------------------------------------------------------------------------------------------ instant
 @dataclass
 class StickyFilter:
-    dwell_s: float = 4.0                         # expected persistence of an instant emotion
+    """dwell_s = PERSISTENCE: how long a reading stays relevant while no new evidence arrives.
+    carry   = INERTIA: how much the previous state shapes the interpretation of a NEW observation
+              (1 = standard HMM: new evidence is weighed against the accumulated state;
+               0 = every observation is judged on its own, yet still persists for dwell_s afterwards).
+    Real data separates the two: face frames are strongly autocorrelated (carry 1), whereas in conversations a
+    speaker's next utterance keeps the same emotion only ~44% of the time (MELD), so text wants carry ~0."""
+    dwell_s: float = 4.0
+    carry: float = 1.0
     base: np.ndarray = field(default_factory=lambda: np.full(K, 1.0 / K))
     b: np.ndarray = None
     t: float | None = None
@@ -56,7 +63,8 @@ class StickyFilter:
     def update(self, t: float, q: np.ndarray, r: float = 1.0):
         self.predict(t)
         like = np.clip(q / self.base, 1e-9, None) ** float(np.clip(r, 0, 1))
-        self.b = self.b * like
+        prior = self.carry * self.b + (1 - self.carry) * self.base
+        self.b = prior * like
         self.b /= self.b.sum()
         return self.b
 
@@ -151,18 +159,18 @@ class MoodWindow:
     def add(self, o: Obs):
         self.obs.append(o)
 
-    def weight(self, o: Obs, now: float) -> float:
+    def weight(self, o: Obs, now: float, half_life: float | None = None) -> float:
         """reliability x independence (dur/tau_c, capped at 1) x recency x informativeness of the block.
         Informativeness min(1, 2 x (1 - normalised entropy)) keeps flat "don't know" outputs from voting -- important for text,
         whose 6-class model is forced to spread mass when the true state (e.g. neutral) is outside its label set."""
-        hl = self.half_life_s or self.window_s
+        hl = half_life or self.half_life_s or self.window_s
         return o.r * min(1.0, o.dur / self.tau_c) * 0.5 ** ((now - o.t) / hl) * min(1.0, 2 * (1 - entropy_norm(o.q)))
 
-    def evidence(self, now: float, lo: float | None = None, hi: float | None = None):
+    def evidence(self, now: float, lo: float | None = None, hi: float | None = None, half_life: float | None = None):
         e, n = np.zeros(K), 0.0
         for o in self.obs:
             if (lo is None or o.t >= lo) and (hi is None or o.t < hi):
-                w = self.weight(o, now)
+                w = self.weight(o, now, half_life)
                 e += w * o.q
                 n += w
         return e, n
@@ -205,7 +213,25 @@ def fuse_moods(windows: dict[str, "MoodWindow"], now: float, weights: dict | Non
     for i in range(len(names)):
         for j in range(i + 1, len(names)):
             dis = max(dis, jsd(means[names[i]], means[names[j]]) * min(rel[names[i]], rel[names[j]]))
-    est.extra = {"cross_modal_jsd": round(dis, 3), "modality_leaders": {m: CANON[int(v.argmax())] for m, v in means.items()}}
+    # P(incongruent): probability, under the per-modality Dirichlet posteriors, that two modalities' leading emotions have
+    # OPPOSITE valence (each |v| >= 0.3), e.g. words say joy while the face says anger -- the window-level masking signal.
+    # Neutral (v = 0) never counts: one channel being less expressive is not incongruence.
+    # recency-weighted (half-life = window/4): incongruence is about the current state, not the window's history
+    rng = rng or np.random.default_rng(0)
+    leaders, p_inc, pair = {}, 0.0, None
+    for m, w in windows.items():
+        e, n = w.evidence(now, lo=now - w.window_s, half_life=w.window_s / 4)
+        if n >= 1.0:
+            leaders[m] = rng.dirichlet(alpha0 + e, 1000).argmax(1)
+    ms = list(leaders)
+    for i in range(len(ms)):
+        for j in range(i + 1, len(ms)):
+            va, vb = VA[leaders[ms[i]], 0], VA[leaders[ms[j]], 0]
+            p = float(((va * vb < 0) & (np.abs(va) >= 0.3) & (np.abs(vb) >= 0.3)).mean())
+            if p > p_inc:
+                p_inc, pair = p, (ms[i], ms[j])
+    est.extra = {"cross_modal_jsd": round(dis, 3), "p_incongruent": round(p_inc, 3), "incongruent_pair": pair,
+                 "modality_leaders": {m: CANON[int(v.argmax())] for m, v in means.items()}}
     return est
 
 

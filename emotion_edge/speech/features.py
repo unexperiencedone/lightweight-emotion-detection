@@ -2,7 +2,7 @@
 
 Why hand-crafted prosody and not wav2vec2/HuBERT: those encoders are 95M+ params and dominate the edge budget; the
 *paralinguistic* cues that carry affect -- pitch level/range/dynamics, loudness, speaking tempo, voicing, spectral
-tilt/timbre -- are captured by ~130 summary statistics, and a 30k-parameter MLP on top is int8-quantizable.
+tilt/timbre -- are captured by 88 summary features, and a ~29k-parameter MLP on top is int8-quantizable.
 """
 from __future__ import annotations
 import numpy as np
